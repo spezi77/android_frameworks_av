@@ -89,7 +89,7 @@ status_t CameraClient::initialize(camera_module_t *module) {
 
     // Enable zoom, error, focus, and metadata messages by default
     enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS
-#ifndef CAMERA_MSG_MGMT
+#ifndef QCOM_HARDWARE
                   | CAMERA_MSG_PREVIEW_METADATA 
 #endif
 #ifndef OMAP_ICS_CAMERA
@@ -256,9 +256,12 @@ void CameraClient::disconnect() {
 
     // Release the held ANativeWindow resources.
     if (mPreviewWindow != 0) {
+#ifdef QCOM_HARDWARE
+        mHardware->setPreviewWindow(0);
+#endif
         disconnectWindow(mPreviewWindow);
         mPreviewWindow = 0;
-#ifndef NO_UPDATE_PREVIEW
+#ifndef QCOM_HARDWARE
         mHardware->setPreviewWindow(mPreviewWindow);
 #endif
     }
@@ -299,6 +302,10 @@ status_t CameraClient::setPreviewWindow(const sp<IBinder>& binder,
             native_window_set_buffers_transform(window.get(), mOrientation);
             result = mHardware->setPreviewWindow(window);
         }
+#ifdef QCOM_HARDWARE
+    } else {
+        result = mHardware->setPreviewWindow(window);
+#endif
     }
 
     if (result == NO_ERROR) {
@@ -362,6 +369,9 @@ status_t CameraClient::startPreview() {
     enableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     LOG1("startPreview (pid %d)", getCallingPid());
+#ifdef QCOM_HARDWARE
+    enableMsgType(CAMERA_MSG_PREVIEW_METADATA);
+#endif
     return startCameraMode(CAMERA_PREVIEW_MODE);
 }
 
@@ -452,7 +462,7 @@ status_t CameraClient::startRecordingMode() {
 // stop preview mode
 void CameraClient::stopPreview() {
     LOG1("stopPreview (pid %d)", getCallingPid());
-#ifdef CAMERA_MSG_MGMT
+#ifdef QCOM_HARDWARE
     disableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     Mutex::Autolock lock(mLock);
@@ -593,7 +603,7 @@ status_t CameraClient::takePicture(int msgType) {
 #if defined(OMAP_ICS_CAMERA) || defined(OMAP_ENHANCEMENT_BURST_CAPTURE)
     picMsgType |= CAMERA_MSG_COMPRESSED_BURST_IMAGE;
 #endif
-#ifdef CAMERA_MSG_MGMT
+#ifdef QCOM_HARDWARE
     disableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     enableMsgType(picMsgType);
