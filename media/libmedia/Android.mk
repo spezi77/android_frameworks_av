@@ -99,6 +99,14 @@ ifeq ($(BOARD_OMX_NEEDS_LEGACY_AUDIO),true)
 	LOCAL_CFLAGS += -DBOARD_OMX_NEEDS_LEGACY_AUDIO
 endif
 
+#QTI Resampler
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(BOARD_USES_QCOM_RESAMPLER)),true)
+LOCAL_CFLAGS += -DQTI_RESAMPLER
+endif
+endif
+#QTI Resampler
+
 LOCAL_SHARED_LIBRARIES := \
 	libui liblog libcutils libutils libbinder libsonivox libicuuc libexpat \
         libcamera_client libstagefright_foundation \
