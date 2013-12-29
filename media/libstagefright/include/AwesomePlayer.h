@@ -207,7 +207,7 @@ private:
 
     bool mWatchForAudioSeekComplete;
     bool mWatchForAudioEOS;
-#ifdef QCOM_ENHANCED_AUDIO
+#ifdef QCOM_DIRECTTRACK
     static int mTunnelAliveAP;
 #endif
 
@@ -247,7 +247,6 @@ private:
     sp<DecryptHandle> mDecryptHandle;
 
     int64_t mLastVideoTimeUs;
-    int64_t mFrameDurationUs;
     TimedTextDriver *mTextDriver;
 
     sp<WVMExtractor> mWVMExtractor;
@@ -320,7 +319,7 @@ private:
         ASSIGN
     };
     void modifyFlags(unsigned value, FlagMode mode);
-#ifdef QCOM_ENHANCED_AUDIO
+#ifdef QCOM_DIRECTTRACK
     void checkTunnelExceptions();
 #endif
     void logFirstFrame();
@@ -330,7 +329,6 @@ private:
     void printStats();
     int64_t getTimeOfDayUs();
     bool mStatistics;
-    int64_t mLateAVSyncMargin;
 
     struct TrackStat {
         String8 mMIME;
@@ -392,7 +390,7 @@ private:
 
     size_t countTracks() const;
 
-#ifdef QCOM_ENHANCED_AUDIO
+#ifdef QCOM_DIRECTTRACK
     bool inSupportedTunnelFormats(const char * mime);
     //Flag to check if tunnel mode audio is enabled
     bool mIsTunnelAudio;
