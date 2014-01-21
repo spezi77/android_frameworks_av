@@ -520,7 +520,7 @@ status_t AudioTrack::initCheck() const
 }
 #endif
 
-#ifdef QCOM_DIRECTTRACK || BOARD_OMX_NEEDS_LEGACY_AUDIO
+#if defined(QCOM_DIRECTTRACK) || defined(BOARD_OMX_NEEDS_LEGACY_AUDIO)
 uint32_t AudioTrack::latency() const
 {
 #ifdef QCOM_DIRECTTRACK
