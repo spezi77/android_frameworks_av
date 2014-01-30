@@ -911,8 +911,9 @@ void CameraService::loadSound() {
     int selectedSound = atoi(value);
 
     if(selectedSound != 0) {
-        mSoundPlayer[SOUND_SHUTTER] = newMediaPlayer(selectedSound == 1 ? "/system/media/audio/ui/camera_click.ogg" : "/system/media/audio/ui/camera_click_realistic.ogg");
-        mSoundPlayer[SOUND_RECORDING] = newMediaPlayer("/system/media/audio/ui/VideoRecord.ogg");
+        mSoundPlayer[SOUND_SHUTTER] = newMediaPlayer(selectedSound == 1 ? "/data/system/soundlinks/camera_click.ogg" : "/data/system/soundlinks/camera_click_realistic.ogg");
+    	mSoundPlayer[SOUND_RECORDING] = newMediaPlayer("/data/system/soundlinks/VideoRecord_start.ogg");
+    	mSoundPlayer[SOUND_RECORDING_STOP] = newMediaPlayer("/data/system/soundlinks/VideoRecord_stop.ogg");
     }
     else {
         mSoundPlayer[SOUND_SHUTTER] = NULL;
