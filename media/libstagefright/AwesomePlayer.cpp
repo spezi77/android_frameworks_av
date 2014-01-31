@@ -61,6 +61,9 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/Utils.h>
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
 
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
@@ -85,6 +88,7 @@ static const size_t kHighWaterMarkBytes = 200000;
 #ifdef QCOM_DIRECTTRACK
 int AwesomePlayer::mTunnelAliveAP = 0;
 #endif
+static int64_t kVideoEarlyMarginUs = -10000LL;
 
 // maximum time in paused state when offloading audio decompression. When elapsed, the AudioPlayer
 // is destroyed to allow the audio DSP to power down.
@@ -253,6 +257,10 @@ AwesomePlayer::AwesomePlayer()
     reset();
 #ifdef QCOM_DIRECTTRACK
     mIsTunnelAudio = false;
+#endif
+
+#ifdef QCOM_HARDWARE
+    mLateAVSyncMargin = ExtendedUtils::ShellProp::getMaxAVSyncLateMargin();
 #endif
 }
 
@@ -531,7 +539,11 @@ status_t AwesomePlayer::setDataSource_l(const sp<MediaExtractor> &extractor) {
                     &mStats.mTracks.editItemAt(mStats.mVideoTrackIndex);
                 stat->mMIME = mime.string();
             }
-        } else if (!haveAudio && !strncasecmp(mime.string(), "audio/", 6)) {
+        } else if (!haveAudio &&
+#ifdef QCOM_HARDWARE
+                !ExtendedUtils::ShellProp::isAudioDisabled(false) &&
+#endif
+                !strncasecmp(mime.string(), "audio/", 6)) {
             setAudioSource(extractor->getTrack(i));
             haveAudio = true;
             mActiveAudioTrackIndex = i;
@@ -1047,33 +1059,7 @@ status_t AwesomePlayer::play_l() {
             status_t err = startAudioPlayer_l(sendErrorNotification);
 
             if ((err != OK) && mOffloadAudio) {
-                ALOGI("play_l() cannot create offload output, fallback to sw decode");
-                int64_t curTimeUs;
-                getPosition(&curTimeUs);
-
-                delete mAudioPlayer;
-                mAudioPlayer = NULL;
-                // if the player was started it will take care of stopping the source when destroyed
-                if (!(mFlags & AUDIOPLAYER_STARTED)) {
-                    mAudioSource->stop();
-                }
-                modifyFlags((AUDIO_RUNNING | AUDIOPLAYER_STARTED), CLEAR);
-                mOffloadAudio = false;
-                mAudioSource = mOmxSource;
-                if (mAudioSource != NULL) {
-                    err = mAudioSource->start();
-
-                    if (err != OK) {
-                        mAudioSource.clear();
-                    } else {
-                        mSeekNotificationSent = true;
-                        if (mExtractorFlags & MediaExtractor::CAN_SEEK) {
-                            seekTo_l(curTimeUs);
-                        }
-                        createAudioPlayer_l();
-                        err = startAudioPlayer_l(false);
-                    }
-                }
+                 err = fallbackToSWDecoder();
             }
 
             if (err != OK) {
@@ -1135,6 +1121,40 @@ status_t AwesomePlayer::play_l() {
     }
 
     return OK;
+}
+
+status_t AwesomePlayer::fallbackToSWDecoder() {
+    int64_t curTimeUs;
+    status_t err = OK;
+
+    ALOGI("play_l() cannot create offload output, fallback to sw decode");
+    getPosition(&curTimeUs);
+
+    delete mAudioPlayer;
+    mAudioPlayer = NULL;
+    // if the player was started it will take care of stopping the source when destroyed
+    if (!(mFlags & AUDIOPLAYER_STARTED)) {
+        mAudioSource->stop();
+    }
+    modifyFlags((AUDIO_RUNNING | AUDIOPLAYER_STARTED), CLEAR);
+    mOffloadAudio = false;
+    mAudioSource = mOmxSource;
+    if (mAudioSource != NULL) {
+        err = mAudioSource->start();
+
+        if (err != OK) {
+            mAudioSource.clear();
+        } else {
+            mSeekNotificationSent = true;
+            if (mExtractorFlags & MediaExtractor::CAN_SEEK) {
+                seekTo_l(curTimeUs);
+            }
+            createAudioPlayer_l();
+            err = startAudioPlayer_l(false);
+        }
+    }
+
+    return err;
 }
 
 void AwesomePlayer::createAudioPlayer_l()
@@ -2205,9 +2225,24 @@ void AwesomePlayer::onVideoEvent() {
     finishSeekIfNecessary(timeUs);
 
     if (mAudioPlayer != NULL && !(mFlags & (AUDIO_RUNNING | SEEK_PREVIEW))) {
-        status_t err = startAudioPlayer_l();
+        status_t err = startAudioPlayer_l(false /* sendErrorNotification */);
+        if ((err != OK) && mOffloadAudio) {
+            err = fallbackToSWDecoder();
+        }
+
         if (err != OK) {
-            ALOGE("Starting the audio player failed w/ err %d", err);
+            ALOGE("Failed to fallback to SW decoder err = %d", err);
+            notifyListener_l(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
+
+            delete mAudioPlayer;
+            mAudioPlayer = NULL;
+
+            modifyFlags((PLAYING | FIRST_FRAME), CLEAR);
+
+            if (mDecryptHandle != NULL) {
+               mDrmManagerClient->setPlaybackStatus(
+                       mDecryptHandle, Playback::STOP, 0);
+            }
             return;
         }
     }
@@ -2288,7 +2323,7 @@ void AwesomePlayer::onVideoEvent() {
             }
         }
 
-        if (latenessUs > 40000) {
+        if (latenessUs > mLateAVSyncMargin) {
             // We're more than 40ms late.
             ALOGV("we're late by %lld us (%.2f secs)",
                  latenessUs, latenessUs / 1E6);
@@ -2326,7 +2361,8 @@ void AwesomePlayer::onVideoEvent() {
                 Mutex::Autolock autoLock(mStatsLock);
                 mStats.mConsecutiveFramesDropped = 0;
             }
-            postVideoEvent_l(10000);
+            postVideoEvent_l((kVideoEarlyMarginUs - latenessUs) > 40000LL ?
+                                40000LL : (kVideoEarlyMarginUs - latenessUs));
             return;
         }
     }
