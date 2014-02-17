@@ -38,12 +38,7 @@ class StaticAudioTrackClientProxy;
 
 // ----------------------------------------------------------------------------
 
-#ifdef QCOM_DIRECTTRACK
-class AudioTrack : public BnDirectTrackClient,
-                   virtual public RefBase
-#else
 class AudioTrack : public RefBase
-#endif
 {
 public:
     enum channel_index {
@@ -293,7 +288,7 @@ public:
      * This includes the latency due to AudioTrack buffer size, AudioMixer (if any)
      * and audio hardware driver.
      */
-#ifdef BOARD_OMX_NEEDS_LEGACY_AUDIO
+#if defined(QCOM_DIRECTTRACK) || defined(BOARD_OMX_NEEDS_LEGACY_AUDIO)
             uint32_t    latency() const;
 #else
             uint32_t    latency() const     { return mLatency; }
@@ -817,6 +812,17 @@ private:
     uint32_t                mSequence;              // incremented for each new IAudioTrack attempt
     audio_io_handle_t       mOutput;                // cached output io handle
     int                     mClientUid;
+
+#ifdef QCOM_DIRECTTRACK
+    class DirectClient : public BnDirectTrackClient {
+    public:
+        DirectClient(AudioTrack * audioTrack) : mAudioTrack(audioTrack) { }
+        virtual void notify(int msg);
+    private:
+        const wp<AudioTrack> mAudioTrack;
+    };
+    sp<DirectClient>       mDirectClient;
+#endif
 };
 
 class TimedAudioTrack : public AudioTrack

@@ -436,12 +436,13 @@ status_t AudioTrack::set(
         mAudioFlinger = audioFlinger;
         status_t status = NO_ERROR;
         mAudioDirectOutput = output;
+        mDirectClient = new DirectClient(this);
         mDirectTrack = audioFlinger->createDirectTrack( getpid(),
                                                         sampleRate,
                                                         channelMask,
                                                         mAudioDirectOutput,
                                                         &mSessionId,
-                                                        this,
+                                                        mDirectClient.get(),
                                                         streamType,
                                                         &status);
         if(status != NO_ERROR) {
@@ -562,25 +563,66 @@ extern "C" int _ZN7android10AudioTrack12getSessionIdEv()
 #endif
 // -------------------------------------------------------------------------
 
-#ifdef QCOM_DIRECTTRACK
+#if defined(QCOM_DIRECTTRACK) || defined(BOARD_OMX_NEEDS_LEGACY_AUDIO)
 uint32_t AudioTrack::latency() const
 {
+#ifdef QCOM_DIRECTTRACK
     if (mAudioDirectOutput != -1) {
         return mAudioFlinger->latency(mAudioDirectOutput);
     } else if (mOutput != 0) {
         uint32_t afLatency = 0;
         uint32_t newLatency = 0;
         AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-        if (0 != mSampleRate){
-            newLatency = afLatency + (1000*mCblk->frameCount_) / mSampleRate;
+        if(0 != mSampleRate) {
+            newLatency = (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+        } else {
+            newLatency = afLatency;
         }
         ALOGV("latency() mLatency = %d, newLatency = %d", mLatency, newLatency);
         return newLatency;
     }
+#endif
     return mLatency;
 }
 #endif
 
+#ifdef BOARD_OMX_NEEDS_LEGACY_AUDIO
+audio_stream_type_t AudioTrack::streamType() const
+{
+    return mStreamType;
+}
+
+audio_format_t AudioTrack::format() const
+{
+    return mFormat;
+}
+
+uint32_t AudioTrack::channelCount() const
+{
+    return mChannelCount;
+}
+
+uint32_t AudioTrack::frameCount() const
+{
+    return mFrameCount;
+}
+
+size_t AudioTrack::frameSize() const
+{
+    return mFrameSize;
+}
+
+int AudioTrack::getSessionId() const
+{
+    return mSessionId;
+}
+
+extern "C" int _ZNK7android10AudioTrack12getSessionIdEv();
+extern "C" int _ZN7android10AudioTrack12getSessionIdEv()
+{
+    return _ZNK7android10AudioTrack12getSessionIdEv();
+}    
+#endif
 status_t AudioTrack::start()
 {
     status_t status = NO_ERROR;
@@ -2044,7 +2086,12 @@ status_t AudioTrack::dump(int fd, const Vector<String16>& args) const
 #ifdef QCOM_DIRECTTRACK
     uint32_t afLatency = 0;
     AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-    snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+    if(0 != mSampleRate) {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState,
+                (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate));
+    } else {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency);
+    }
 #else
     snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, mLatency);
 #endif
@@ -2088,6 +2135,16 @@ status_t AudioTrack::getTimeStamp(uint64_t *tstamp) {
         ALOGE("Timestamp %lld ", *tstamp);
     }
     return NO_ERROR;
+}
+
+void AudioTrack::DirectClient::notify(int msg) {
+    sp<AudioTrack> track = mAudioTrack.promote();
+    if (track == 0) {
+        ALOGE("AudioTrack dead?");
+        return;
+    }
+
+    return track->notify(msg);
 }
 #endif
 

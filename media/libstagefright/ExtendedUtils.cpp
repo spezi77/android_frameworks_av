@@ -465,8 +465,19 @@ void ExtendedUtils::helper_addMediaCodec(Vector<MediaCodecList::CodecInfo> &mCod
     MediaCodecList::CodecInfo *info = &mCodecInfos.editItemAt(mCodecInfos.size() - 1);
     info->mName = name;
     info->mIsEncoder = encoder;
+    info->mTypes=0;
     ssize_t index = mTypes.indexOfKey(type);
-    uint32_t bit = mTypes.valueAt(index);
+    uint32_t bit;
+    if(index < 0) {
+         bit = mTypes.size();
+         if (bit == 32) {
+             ALOGW("Too many distinct type names in configuration.");
+             return;
+         }
+         mTypes.add(name, bit);
+    } else {
+        bit = mTypes.valueAt(index);
+    }
     info->mTypes |= 1ul << bit;
     info->mQuirks = quirks;
 }
@@ -514,38 +525,6 @@ bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentNa
         isInThumbnailMode = true;
     }
     return isInThumbnailMode;
-}
-
-void ExtendedUtils::setArbitraryModeIfInterlaced(
-        const uint8_t *ptr, const sp<MetaData> &meta) {
-
-    if (ptr == NULL) {
-        return;
-    }
-    uint16_t spsSize = (((uint16_t)ptr[6]) << 8) + (uint16_t)(ptr[7]);
-    int32_t width = 0, height = 0, isInterlaced = 0;
-    const uint8_t *spsStart = &ptr[8];
-
-    sp<ABuffer> seqParamSet = new ABuffer(spsSize);
-    memcpy(seqParamSet->data(), spsStart, spsSize);
-    FindAVCDimensions(seqParamSet, &width, &height, NULL, NULL, &isInterlaced);
-
-    ALOGV("height is %d, width is %d, isInterlaced is %d\n", height, width, isInterlaced);
-    if (isInterlaced) {
-        meta->setInt32(kKeyUseArbitraryMode, 1);
-        meta->setInt32(kKeyInterlace, 1);
-    }
-    return;
-}
-
-int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
-    int32_t isInterlaceFormat = 0;
-
-    if(meta->findInt32(kKeyInterlace, &isInterlaceFormat)) {
-        ALOGI("interlace format detected");
-    }
-
-    return isInterlaceFormat;
 }
 
 }
@@ -636,14 +615,6 @@ void ExtendedUtils::updateNativeWindowBufferGeometry(ANativeWindow* anw,
 }
 
 bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentName) {
-    return false;
-}
-
-void ExtendedUtils::setArbitraryModeIfInterlaced(
-        const uint8_t *ptr, const sp<MetaData> &meta) {
-}
-
-int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
     return false;
 }
 
