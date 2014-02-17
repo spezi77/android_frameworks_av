@@ -51,8 +51,6 @@ CameraClient::CameraClient(const sp<CameraService>& cameraService,
     mPreviewWindow = 0;
     mDestructionStarted = false;
 
-    mIsOrientationSetByApp = false;
-
     // Callback is disabled by default
     mPreviewCallbackFlag = CAMERA_FRAME_CALLBACK_FLAG_NOOP;
     mOrientation = getOrientation(0, mCameraFacing == CAMERA_FACING_FRONT);
@@ -91,7 +89,7 @@ status_t CameraClient::initialize(camera_module_t *module) {
 
     // Enable zoom, error, focus, and metadata messages by default
     enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS
-#ifndef QCOM_HARDWARE
+#ifndef CAMERA_MSG_MGMT
                   | CAMERA_MSG_PREVIEW_METADATA 
 #endif
 #ifndef OMAP_ICS_CAMERA
@@ -360,7 +358,7 @@ status_t CameraClient::setPreviewCallbackTarget(
 
 // start preview mode
 status_t CameraClient::startPreview() {
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
     enableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     LOG1("startPreview (pid %d)", getCallingPid());
@@ -410,13 +408,8 @@ status_t CameraClient::startPreviewMode() {
     if (mPreviewWindow != 0) {
         native_window_set_scaling_mode(mPreviewWindow.get(),
                 NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        if (!mIsOrientationSetByApp) {
-            int orientationCorrection = getOrientation(0,mCameraFacing == CAMERA_FACING_FRONT);
-            native_window_set_buffers_transform(mPreviewWindow.get(),
-                                                mOrientation + orientationCorrection);
-        } else {
-            native_window_set_buffers_transform(mPreviewWindow.get(), mOrientation);
-        }
+        native_window_set_buffers_transform(mPreviewWindow.get(),
+                mOrientation);
     }
 
 #if defined(OMAP_ICS_CAMERA) || defined(OMAP_ENHANCEMENT_BURST_CAPTURE)
@@ -459,7 +452,7 @@ status_t CameraClient::startRecordingMode() {
 // stop preview mode
 void CameraClient::stopPreview() {
     LOG1("stopPreview (pid %d)", getCallingPid());
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
     disableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     Mutex::Autolock lock(mLock);
@@ -476,10 +469,8 @@ void CameraClient::stopPreview() {
     disableMsgType(CAMERA_MSG_POSTVIEW_FRAME);
 #endif
 
-    mIsOrientationSetByApp = false;
-
     disableMsgType(CAMERA_MSG_PREVIEW_FRAME);
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
     //Disable picture related message types
     ALOGI("stopPreview: Disable picture related messages");
     int picMsgType = 0;
@@ -502,7 +493,7 @@ void CameraClient::stopRecording() {
     if (checkPidAndHardware() != NO_ERROR) return;
 
     disableMsgType(CAMERA_MSG_VIDEO_FRAME);
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
     //Disable picture related message types
     ALOGI("stopRecording: Disable picture related messages");
     int picMsgType = 0;
@@ -602,7 +593,7 @@ status_t CameraClient::takePicture(int msgType) {
 #if defined(OMAP_ICS_CAMERA) || defined(OMAP_ENHANCEMENT_BURST_CAPTURE)
     picMsgType |= CAMERA_MSG_COMPRESSED_BURST_IMAGE;
 #endif
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
     disableMsgType(CAMERA_MSG_PREVIEW_METADATA);
 #endif
     enableMsgType(picMsgType);
@@ -689,8 +680,6 @@ status_t CameraClient::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
         orientation = getOrientation(arg1, mCameraFacing == CAMERA_FACING_FRONT);
         if (orientation == -1) return BAD_VALUE;
 
-        mIsOrientationSetByApp = true;
-
         if (mOrientation != orientation) {
             mOrientation = orientation;
             if (mPreviewWindow != 0) {
@@ -754,7 +743,7 @@ void CameraClient::disableMsgType(int32_t msgType) {
 bool CameraClient::lockIfMessageWanted(int32_t msgType) {
     int sleepCount = 0;
     while (mMsgEnabled & msgType) {
-#ifdef QCOM_HARDWARE
+#ifdef CAMERA_MSG_MGMT
         if ((msgType == CAMERA_MSG_PREVIEW_FRAME) &&
               (mMsgEnabled & CAMERA_MSG_COMPRESSED_IMAGE)) {
            LOG1("lockIfMessageWanted(%d): Don't try to acquire mlock if "
