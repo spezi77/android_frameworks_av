@@ -189,8 +189,9 @@ const char CameraParameters::KEY_METERING[] = "metering";
 const char CameraParameters::KEY_WDR[] = "wdr";
 const char CameraParameters::KEY_WEATHER[] = "weather";
 const char CameraParameters::KEY_CITYID[] = "contextualtag-cityid";
+#endif
 
-// For lt01wifi, lt013g and lt01lte (exynos4) camera HAL
+#ifdef SAMSUNG_EXYNOS_HARDWARE
 const char CameraParameters::KEY_ISO[] = "iso";
 const char CameraParameters::METERING_CENTER[] = "center";
 const char CameraParameters::METERING_SPOT[] = "spot";

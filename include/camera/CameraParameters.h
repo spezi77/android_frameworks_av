@@ -663,8 +663,9 @@ public:
     static const char KEY_WDR[];
     static const char KEY_WEATHER[];
     static const char KEY_CITYID[];
+#endif
 
-    // For lt01wifi, lt013g and lt01lte (exynos4) camera HAL
+#ifdef SAMSUNG_EXYNOS_HARDWARE
     static const char KEY_ISO[];
     static const char METERING_CENTER[];
     static const char METERING_SPOT[];
