@@ -699,11 +699,13 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             }
 #endif
             addCodecSpecificData(data, size);
+#ifdef QCOM_HARDWARE
         } else {
             ExtendedCodec::getRawCodecSpecificData(meta, data, size);
             if (size) {
                 addCodecSpecificData(data, size);
             }
+#endif
         }
     }
 
