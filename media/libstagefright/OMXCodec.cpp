@@ -181,11 +181,25 @@ struct OMXCodecObserver : public BnOMXObserver {
     // from IOMXObserver
     virtual void onMessage(const omx_message &msg) {
         sp<OMXCodec> codec = mTarget.promote();
+        bool bYieldToConsumer = false;
 
         if (codec.get() != NULL) {
             Mutex::Autolock autoLock(codec->mLock);
             codec->on_message(msg);
+
+            bYieldToConsumer = codec->mIsEncoder &&
+                    !strncasecmp(codec->mMIME, "video/", 6) &&
+                    (msg.type == omx_message::FILL_BUFFER_DONE ||
+                    msg.type == omx_message::EMPTY_BUFFER_DONE);
             codec.clear();
+        }
+
+        // Yield the thread _outside_ the lock to enable the other
+        // thread sharing the same lock to run.
+        // usleep(0) seems to work better than sched_yield with threads
+        // of different priorities.
+        if (bYieldToConsumer) {
+            usleep(0);
         }
     }
 
@@ -665,6 +679,17 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             addCodecSpecificData(
                     codec_specific_data, codec_specific_data_size);
 #ifdef QCOM_HARDWARE
+            }
+#endif
+#ifdef ENABLE_AV_ENHANCEMENTS
+            ALOGV("OMXCodec::configureCodec check for DP in ESDS atom");
+            if (!strncmp(mComponentName, "OMX.qcom.video.decoder.mpeg4",
+                         sizeof("OMX.qcom.video.decoder.mpeg4"))) {
+                bool isDP = ExtendedCodec::checkDPFromCodecSpecificData((const uint8_t*)data, size);
+                if (isDP) {
+                    ALOGE("H/W Decode Error: Data Partitioned bit set in the Header");
+                    return BAD_VALUE;
+                }
             }
 #endif
         } else if (meta->findData(kKeyAVCC, &type, &data, &size)) {
@@ -4818,6 +4843,8 @@ status_t OMXCodec::start(MetaData *meta) {
 
     if(mPaused && mIsEncoder) {
         CODEC_LOGV("resume : S");
+        //wake waitForBufferFilled_l() to avoid timeout when mPause becomes false
+        mBufferFilled.signal();
         mPaused = false;
 
         if (mIsVideo) {
@@ -5975,6 +6002,8 @@ status_t OMXCodec::resumeLocked(bool drainInputBuf) {
         return mState == ERROR ? UNKNOWN_ERROR : OK;
     } else {   // SW Codec
         mPaused = false;
+        if(drainInputBuf)
+            drainInputBuffers();
         return OK;
     }
 }
