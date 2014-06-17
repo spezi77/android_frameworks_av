@@ -419,7 +419,8 @@ status_t ExtendedCodec::setSupportedRole(
           "audio_decoder.wma" , NULL },
         { MEDIA_MIMETYPE_VIDEO_HEVC,
           "video_decoder.hevc" , NULL },
-
+        { MEDIA_MIMETYPE_VIDEO_MPEG2,
+          "video_decoder.mpeg2" , NULL },
         };
 
     static const size_t kNumMimeToRole =
@@ -468,14 +469,14 @@ status_t ExtendedCodec::getSupportedAudioFormatInfo(
         int portIndex,
         int* channelCount) {
     status_t retVal = OK;
-    if (!strcmp(mime->c_str(),MEDIA_MIMETYPE_AUDIO_QCELP)) {
+    if (!strncmp(mime->c_str(), MEDIA_MIMETYPE_AUDIO_QCELP, strlen(MEDIA_MIMETYPE_AUDIO_QCELP))) {
         OMX_AUDIO_PARAM_QCELP13TYPE params;
         InitOMXParams(&params);
         params.nPortIndex = portIndex;
         CHECK_EQ(OMXhandle->getParameter(
                    nodeID, OMX_IndexParamAudioQcelp13, &params, sizeof(params)), (status_t)OK);
         *channelCount = params.nChannels;
-    } else if(!strcmp(mime->c_str(), MEDIA_MIMETYPE_AUDIO_EVRC)) {
+    } else if(!strncmp(mime->c_str(), MEDIA_MIMETYPE_AUDIO_EVRC, strlen(MEDIA_MIMETYPE_AUDIO_EVRC))) {
         OMX_AUDIO_PARAM_EVRCTYPE params;
         InitOMXParams(&params);
         params.nPortIndex = portIndex;
@@ -509,25 +510,22 @@ void ExtendedCodec::configureFramePackingFormat(
         return;
     }
 
-    int32_t arbitraryMode = 0;
-    bool success = msg->findInt32(getMsgKey(kKeyUseArbitraryMode), &arbitraryMode);
-    bool useFrameByFrameMode = true; //default option
-    if (success && arbitraryMode) {
-        useFrameByFrameMode = false;
-    }
+    int32_t mode = 0;
+    OMX_QCOM_PARAM_PORTDEFINITIONTYPE portFmt;
+    portFmt.nPortIndex = kPortIndexInput;
 
-    if (useFrameByFrameMode) {
-        ALOGI("Enable frame by frame mode");
-        OMX_QCOM_PARAM_PORTDEFINITIONTYPE portFmt;
-        portFmt.nPortIndex = kPortIndexInput;
-        portFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
-        status_t err = OMXhandle->setParameter(
-        nodeID, (OMX_INDEXTYPE)OMX_QcomIndexPortDefn, (void *)&portFmt, sizeof(portFmt));
-        if(err != OK) {
-            ALOGW("Failed to set frame packing format on component");
-        }
+    if (msg->findInt32(getMsgKey(kKeyUseArbitraryMode), &mode) && mode) {
+        ALOGI("Decoder will be in arbitrary mode");
+        portFmt.nFramePackingFormat = OMX_QCOM_FramePacking_Arbitrary;
     } else {
-        ALOGI("Decoder should be in arbitrary mode");
+        ALOGI("Decoder will be in frame by frame mode");
+        portFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
+    }
+    status_t err = OMXhandle->setParameter(
+            nodeID, (OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
+            (void *)&portFmt, sizeof(portFmt));
+    if(err != OK) {
+        ALOGW("Failed to set frame packing format on component");
     }
 }
 
@@ -547,6 +545,9 @@ void ExtendedCodec::configureVideoDecoder(
         //do nothing for non QC component
         return;
     }
+
+    // set frame packing
+    configureFramePackingFormat(msg, OMXhandle, nodeID, componentName);
 
     setDIVXFormat(msg, mime, OMXhandle, nodeID, kPortIndexOutput);
     AString fileFormat;
@@ -1135,8 +1136,8 @@ bool ExtendedCodec::useHWAACDecoder(const char *mime) {
     char value[PROPERTY_VALUE_MAX] = {0};
     int aaccodectype = 0;
     aaccodectype = property_get("media.aaccodectype", value, NULL);
-    if (aaccodectype && !strncmp("0", value, 1) &&
-        !strncmp(mime, MEDIA_MIMETYPE_AUDIO_AAC,sizeof(MEDIA_MIMETYPE_AUDIO_AAC))) {
+    if (aaccodectype && !strncmp("1", value, 1) &&
+        !strncmp(mime, MEDIA_MIMETYPE_AUDIO_AAC, strlen(MEDIA_MIMETYPE_AUDIO_AAC))) {
         ALOGI("Using Hardware AAC Decoder");
         return true;
     }

@@ -55,6 +55,8 @@ static int64_t kDefaultKeepAliveTimeoutUs = 60000000ll;
 
 static int64_t kPauseDelayUs = 3000000ll;
 
+static int64_t kTearDownTimeoutUs = 3000000ll;
+
 namespace android {
 
 static bool GetAttribute(const char *s, const char *key, AString *value) {
@@ -897,6 +899,15 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 mConn->sendRequest(request.c_str(), reply);
+
+                // If the response of teardown hasn't been received in 3 seconds,
+                // post 'tear' message to avoid ANR.
+                if (!msg->findInt32("reconnect", &reconnect) || !reconnect) {
+                    sp<AMessage> teardown = new AMessage('tear', id());
+                    teardown->setInt32("result", -ECONNABORTED);
+                    teardown->post(kTearDownTimeoutUs);
+                }
+
                 break;
             }
 
@@ -948,7 +959,13 @@ struct MyHandler : public AHandler {
                 }
 
                 mNumAccessUnitsReceived = 0;
-                msg->post(kAccessUnitTimeoutUs);
+
+                //During Pause there will not be any access units coming from N/W and hence
+                //no need to post the check again
+                if (!mCheckPending) {
+                    ALOGI("Posting check again mcheckpening:%d",mCheckPending);
+                    msg->post(kAccessUnitTimeoutUs);
+                }
                 break;
             }
 
