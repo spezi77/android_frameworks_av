@@ -197,6 +197,7 @@ const char CameraParameters::METERING_CENTER[] = "center";
 const char CameraParameters::METERING_SPOT[] = "spot";
 const char CameraParameters::METERING_MATRIX[] = "matrix";
 const char CameraParameters::ISO_AUTO[] = "auto";
+const char CameraParameters::ISO_50[]  = "ISO50";
 const char CameraParameters::ISO_100[] = "ISO100";
 const char CameraParameters::ISO_200[] = "ISO200";
 const char CameraParameters::ISO_400[] = "ISO400";

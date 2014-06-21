@@ -671,6 +671,7 @@ public:
     static const char METERING_SPOT[];
     static const char METERING_MATRIX[];
     static const char ISO_AUTO[];
+    static const char ISO_50[];
     static const char ISO_100[];
     static const char ISO_200[];
     static const char ISO_400[];
