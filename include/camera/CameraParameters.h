@@ -19,6 +19,7 @@
 
 #include <utils/KeyedVector.h>
 #include <utils/String8.h>
+#include <camera/CameraParametersExtra.h>
 
 namespace android {
 
@@ -1162,6 +1163,10 @@ public:
     // keys for record stride and slice height
     static const char KEY_RECORD_STRIDE[];
     static const char KEY_RECORD_SLICE_HEIGHT[];
+#endif
+
+#ifdef CAMERA_PARAMETERS_EXTRA_H
+CAMERA_PARAMETERS_EXTRA_H
 #endif
 
 private:

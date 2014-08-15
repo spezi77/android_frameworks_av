@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <camera/CameraParameters.h>
+#include <camera/CameraParametersExtra.h>
 
 namespace android {
 // Parameter keys to communicate between camera application and driver.
@@ -610,6 +611,10 @@ const char CameraParameters::LIGHTFX_HDR[] = "high-dynamic-range";
 // keys for record stride and sliceheight
 const char CameraParameters::KEY_RECORD_STRIDE[] = "record-stride";
 const char CameraParameters::KEY_RECORD_SLICE_HEIGHT[] = "record-slice-height";
+#endif
+
+#ifdef CAMERA_PARAMETERS_EXTRA_C
+CAMERA_PARAMETERS_EXTRA_C
 #endif
 
 CameraParameters::CameraParameters()
