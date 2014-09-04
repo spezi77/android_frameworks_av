@@ -196,6 +196,16 @@ AudioTrack::~AudioTrack()
         mAudioTrack.clear();
         IPCThreadState::self()->flushCommands();
         AudioSystem::releaseAudioSessionId(mSessionId);
+        if (isOffloaded()) {
+            char propValue[PROPERTY_VALUE_MAX];
+            bool prop_enabled = false;
+
+            if (property_get("audio.offload.multiple.enabled", propValue, NULL))
+                prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
+
+            if (prop_enabled)
+                AudioSystem::releaseOutput(mOutput);
+        }
 #endif
     }
 }
@@ -477,6 +487,11 @@ status_t AudioTrack::set(
     else {
 #endif
 
+    if (cbf != NULL) {
+        mAudioTrackThread = new AudioTrackThread(*this, threadCanCallJava);
+        mAudioTrackThread->run("AudioTrack", ANDROID_PRIORITY_AUDIO, 0 /*stack*/);
+    }
+
     // create the IAudioTrack
     status_t status = createTrack_l(streamType,
                                   sampleRate,
@@ -486,11 +501,6 @@ status_t AudioTrack::set(
                                   sharedBuffer,
                                   output,
                                   0 /*epoch*/);
-
-    if (cbf != NULL && status == NO_ERROR) {
-        mAudioTrackThread = new AudioTrackThread(*this, threadCanCallJava);
-        mAudioTrackThread->run("AudioTrack", ANDROID_PRIORITY_AUDIO, 0 /*stack*/);
-    }
 
     if (status != NO_ERROR) {
         if (mAudioTrackThread != 0) {
@@ -988,10 +998,21 @@ status_t AudioTrack::getPosition(uint32_t *position) const
     AutoMutex lock(mLock);
     if (isOffloaded()) {
         uint32_t dspFrames = 0;
+        status_t status;
+
+        if ((mState == STATE_PAUSED) || (mState == STATE_PAUSED_STOPPING)) {
+            ALOGV("getPosition called in paused state, return cached position %u", mPausedPosition);
+            *position = mPausedPosition;
+            return NO_ERROR;
+        }
 
         if (mOutput != 0) {
             uint32_t halFrames;
-            AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
+            status = AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
+            if (status != NO_ERROR) {
+                ALOGW("failed to getRenderPosition for offload session");
+                return INVALID_OPERATION;
+            }
         }
         *position = dspFrames;
     } else {
@@ -1618,10 +1639,7 @@ nsecs_t AudioTrack::processAudioBuffer(const sp<AudioTrackThread>& thread)
     // Currently the AudioTrack thread is not created if there are no callbacks.
     // Would it ever make sense to run the thread, even without callbacks?
     // If so, then replace this by checks at each use for mCbf != NULL.
-    if (mCblk == NULL) {
-        ALOGE("mCblk is NULL");
-        return NS_NEVER;
-    }
+    LOG_ALWAYS_FATAL_IF(mCblk == NULL);
 
     mLock.lock();
     if (mAwaitBoost) {
