@@ -65,7 +65,7 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/Utils.h>
-#ifdef QCOM_HARDWARE
+#if defined(QCOM_HARDWARE) || defined(ENABLE_OFFLOAD_ENHANCEMENTS)
 #include "include/ExtendedUtils.h"
 #endif
 
@@ -1080,9 +1080,9 @@ status_t AwesomePlayer::play_l() {
             }
 
             if (err != OK) {
-                mAudioSource->stop();
-                if (mAudioSource != mOmxSource && mOmxSource != NULL) {
-                    mOmxSource->stop();
+                if ((mAudioPlayer == NULL || !(mFlags & AUDIOPLAYER_STARTED))
+                        && mAudioSource != NULL) {
+                    mAudioSource->stop();
                 }
                 mAudioSource.clear();
                 mOmxSource.clear();
@@ -1160,7 +1160,7 @@ status_t AwesomePlayer::fallbackToSWDecoder() {
     if (!(mFlags & AUDIOPLAYER_STARTED)) {
         mAudioSource->stop();
     }
-#ifdef ENABLE_AV_ENHANCEMENTS
+#if defined(ENABLE_AV_ENHANCEMENTS) || defined(ENABLE_OFFLOAD_ENHANCEMENTS)
     // no 24-bit for fallback
     ExtendedUtils::updateOutputBitWidth(mAudioSource->getFormat(), false);
 #endif
@@ -2344,6 +2344,10 @@ void AwesomePlayer::onVideoEvent() {
             ALOGE("Failed to fallback to SW decoder err = %d", err);
             notifyListener_l(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
 
+            if ((mAudioPlayer == NULL || !(mFlags & AUDIOPLAYER_STARTED))
+                    && mAudioSource != NULL) {
+                mAudioSource->stop();
+            }
             mAudioSource.clear();
             mOmxSource.clear();
 
