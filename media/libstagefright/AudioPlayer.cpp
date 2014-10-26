@@ -44,10 +44,6 @@
 
 #include "include/AwesomePlayer.h"
 
-#ifdef ENABLE_AV_ENHANCEMENTS
-#include "QCMetaData.h"
-#endif
-
 namespace android {
 
 AudioPlayer::AudioPlayer(
