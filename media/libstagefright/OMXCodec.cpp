@@ -111,6 +111,11 @@ const static int64_t kBufferFilledEventTimeOutNs = 3000000000LL;
 // component in question is buggy or not.
 const static uint32_t kMaxColorFormatSupported = 1000;
 
+#ifdef QCOM_LEGACY_OMX
+static const int QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka = 0x7FA30C03;
+static const int OMX_QCOM_COLOR_FormatYVU420SemiPlanar = 0x7FA30C00;
+#endif
+
 #define FACTORY_CREATE(name) \
 static sp<MediaSource> Make##name(const sp<MediaSource> &source) { \
     return new name(source); \
@@ -1150,6 +1155,9 @@ void OMXCodec::setVideoInputFormat(
     success = success && meta->findInt32(kKeyBitRate, &bitRate);
     success = success && meta->findInt32(kKeyStride, &stride);
     success = success && meta->findInt32(kKeySliceHeight, &sliceHeight);
+#ifdef QCOM_LEGACY_OMX
+    CODEC_LOGI("setVideoInputFormat width=%ld, height=%ld", width, height);
+#endif
     CHECK(success);
     CHECK(stride != 0);
 
@@ -1231,7 +1239,11 @@ void OMXCodec::setVideoInputFormat(
 
     video_def->nFrameWidth = width;
     video_def->nFrameHeight = height;
+#ifdef QCOM_LEGACY_OMX
+    video_def->xFramerate = (frameRate << 16);
+#else
     video_def->xFramerate = 0;      // No need for output port
+#endif
     video_def->nBitrate = bitRate;  // Q16 format
     video_def->eCompressionFormat = compressionFormat;
     video_def->eColorFormat = OMX_COLOR_FormatUnused;
@@ -1777,6 +1789,9 @@ OMXCodec::OMXCodec(
       mPaused(false),
       mNativeWindow(
               (!strncmp(componentName, "OMX.google.", 11)
+#ifdef QCOM_LEGACY_OMX
+              || !strncmp(componentName, "OMX.qcom",8)
+#endif
               || !strncmp(componentName, "OMX.ffmpeg.", 11))
                         ? NULL : nativeWindow),
       mNumBFrames(0),
@@ -5377,6 +5392,12 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
 
             mOutputFormat->setInt32(kKeyWidth, video_def->nFrameWidth);
             mOutputFormat->setInt32(kKeyHeight, video_def->nFrameHeight);
+#ifdef QCOM_LEGACY_OMX
+            // With legacy codec we get wrong color format here
+            if (!strncmp(mComponentName, "OMX.qcom.", 9))
+                mOutputFormat->setInt32(kKeyColorFormat, OMX_QCOM_COLOR_FormatYVU420SemiPlanar);
+            else
+#endif
             mOutputFormat->setInt32(kKeyColorFormat, video_def->eColorFormat);
             mOutputFormat->setInt32(kKeyStride, video_def->nStride);
             mOutputFormat->setInt32(kKeySliceHeight, video_def->nSliceHeight);
