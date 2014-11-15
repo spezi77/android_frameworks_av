@@ -55,9 +55,44 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/native/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+    LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+    else
+    LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media/mm-core/inc
+    endif
+endif
+
 LOCAL_MODULE:= libmediaplayerservice
 
 LOCAL_32_BIT_ONLY := true
+
+ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
+    LOCAL_CFLAGS += -DENABLE_AV_ENHANCEMENTS
+    LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+endif
+endif #TARGET_ENABLE_QC_AV_ENHANCEMENTS
+
+ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
+    LOCAL_CFLAGS += -DUSE_SUBMIT_ONE_INPUT_BUFFER
+endif
+
+ifeq ($(TARGET_USES_SUBMIT_ONE_INPUT_BUFFER),true)
+    LOCAL_CFLAGS += -DUSE_SUBMIT_ONE_INPUT_BUFFER
+endif
+
+#QTI FLAC Decoder
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
+    LOCAL_CFLAGS += -DQTI_FLAC_DECODER
+endif
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 

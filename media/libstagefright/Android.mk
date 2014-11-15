@@ -74,6 +74,48 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/icu/icu4c/source/common \
         $(TOP)/external/icu/icu4c/source/i18n \
 
+ifneq ($(TI_CUSTOM_DOMX_PATH),)
+LOCAL_C_INCLUDES += $(TI_CUSTOM_DOMX_PATH)/omx_core/inc
+LOCAL_CPPFLAGS += -DUSE_TI_CUSTOM_DOMX
+else
+LOCAL_C_INCLUDES += $(TOP)/frameworks/native/include/media/openmax
+endif
+
+ifneq ($(filter caf bfam,$(TARGET_QCOM_AUDIO_VARIANT)),)
+    ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
+        ifeq ($(call is-chipset-in-board-platform,msm8960),true)
+            LOCAL_SRC_FILES += LPAPlayerALSA.cpp TunnelPlayer.cpp
+            LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+            LOCAL_CFLAGS += -DTUNNEL_MODE_SUPPORTS_AMRWB
+        endif
+        ifeq ($(call is-chipset-in-board-platform,msm8974),true)
+            # If you are using legacy mode on 8974, you will not
+            # go to space today. Also, it probably is broken.
+            LOCAL_SRC_FILES += LPAPlayerALSA.cpp TunnelPlayer.cpp
+            LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+        endif
+        ifneq ($(filter msm8660 msm7x30 msm7x27a,$(TARGET_BOARD_PLATFORM)),)
+            LOCAL_SRC_FILES += LPAPlayer.cpp
+            LOCAL_CFLAGS += -DLEGACY_LPA
+        endif
+        ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+            LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+        endif
+        LOCAL_SHARED_LIBRARIES += libstagefright_mp3dec
+    endif
+endif
+
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),caf-new)
+    LOCAL_CFLAGS += -DLEGACY_MEDIA
+endif
+else
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media/mm-core/inc
+endif
+
 LOCAL_SHARED_LIBRARIES := \
         libbinder \
         libcamera_client \
@@ -111,6 +153,38 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_id3 \
         libFLAC \
         libmedia_helper
+
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+
+ifeq ($(TARGET_USES_QCOM_BSP), true)
+    LOCAL_C_INCLUDES += $(call project-path-for,qcom-display)/libgralloc
+endif
+
+ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
+    LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS
+    LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp ExtendedPrefetchSource.cpp ExtendedWriter.cpp
+    LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
+    LOCAL_ADDITIONAL_DEPENDENCIES := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
+
+    ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+        LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+    else
+        LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media/mm-core/inc
+    endif
+
+else #TARGET_ENABLE_AV_ENHANCEMENTS
+ifeq ($(TARGET_ENABLE_OFFLOAD_ENHANCEMENTS),true)
+    LOCAL_CFLAGS += -DENABLE_OFFLOAD_ENHANCEMENTS
+endif
+
+ifeq ($(TARGET_QCOM_LEGACY_OMX),true)
+    LOCAL_CFLAGS += -DQCOM_LEGACY_OMX
+endif
+
+endif
+endif
 
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \
