@@ -43,16 +43,29 @@
 #include <media/stagefright/ExtendedCodec.h>
 #include <media/stagefright/OMXCodec.h>
 
-#ifdef ENABLE_AV_ENHANCEMENTS
+#include <OMX_Component.h>
 
+#ifdef ENABLE_AV_ENHANCEMENTS
 #include <QCMetaData.h>
 #include <QCMediaDefs.h>
 #include <OMX_QCOMExtns.h>
-#include <OMX_Component.h>
 #include <QOMX_AudioExtensions.h>
 #include "include/ExtendedUtils.h"
+#endif
+
 
 namespace android {
+
+template<class T>
+static void InitOMXParams(T *params) {
+    params->nSize = sizeof(T);
+    params->nVersion.s.nVersionMajor = 1;
+    params->nVersion.s.nVersionMinor = 0;
+    params->nVersion.s.nRevision = 0;
+    params->nVersion.s.nStep = 0;
+}
+
+#ifdef ENABLE_AV_ENHANCEMENTS
 enum MetaKeyType{
     INT32, INT64, STRING, DATA, CSD
 };
@@ -226,15 +239,6 @@ void ExtendedCodec::overrideComponentName(
     }
 }
 
-template<class T>
-static void InitOMXParams(T *params) {
-    params->nSize = sizeof(T);
-    params->nVersion.s.nVersionMajor = 1;
-    params->nVersion.s.nVersionMinor = 0;
-    params->nVersion.s.nRevision = 0;
-    params->nVersion.s.nStep = 0;
-}
-
 status_t ExtendedCodec::setDIVXFormat(
         const sp<AMessage> &msg, const char* mime, sp<IOMX> OMXhandle,
         IOMX::node_id nodeID, int port_index) {
@@ -323,7 +327,7 @@ status_t ExtendedCodec::setAudioFormat(
         const sp<AMessage> &msg, const char* mime, sp<IOMX> OMXhandle,
         IOMX::node_id nodeID, bool isEncoder ) {
     ALOGV("setAudioFormat called");
-    status_t err = ERROR_UNSUPPORTED;
+    status_t err = OK;
 
     if ((!strcasecmp(MEDIA_MIMETYPE_AUDIO_AC3, mime)) ||
         (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EAC3, mime))){
@@ -333,19 +337,16 @@ status_t ExtendedCodec::setAudioFormat(
         //setAC3Format(numChannels, sampleRate, OMXhandle, nodeID);
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
-        err = OK;
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EVRC, mime)) {
         int32_t numChannels, sampleRate;
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
         setEVRCFormat(numChannels, sampleRate, OMXhandle, nodeID, isEncoder );
-        err = OK;
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_QCELP, mime)) {
         int32_t numChannels, sampleRate;
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
         setQCELPFormat(numChannels, sampleRate, OMXhandle, nodeID, isEncoder);
-        err = OK;
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_WMA, mime))  {
         err = setWMAFormat(msg, OMXhandle, nodeID, isEncoder);
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS, mime)) {
@@ -1227,6 +1228,24 @@ bool ExtendedCodec::useHWAACDecoder(const char *mime, int channelCount) {
     return false;
 }
 
+ExtendedCodec::kHEVCCodecType ExtendedCodec::useHEVCDecoder(const char *mime) {
+    char value[PROPERTY_VALUE_MAX] = {0};
+    int sw_codectype = 0, hw_codectype = 0;
+    if (!strcmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC)) {
+        sw_codectype = property_get("media.swhevccodectype", value, NULL);
+        if (sw_codectype && !strncmp("1", value, 1)) {
+            ALOGI("Using SW HEVC Decoder");
+            return ExtendedCodec::kCodecType_SWHEVC;
+        }
+        hw_codectype = property_get("media.hwhevccodectype", value, NULL);
+        if (hw_codectype && !strncmp("1", value, 1)) {
+            ALOGI("Using HW HEVC Decoder");
+            return ExtendedCodec::kCodecType_HWHEVC;
+        }
+    }
+    return ExtendedCodec::kCodecType_None;
+}
+
 bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
     /* pause is required for hardware component to release adsp resources */
     if (!strncmp(componentName, "OMX.qcom.", 9)) {
@@ -1235,11 +1254,8 @@ bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
     return false;
 }
 
-} //namespace android
-
 #else //ENABLE_AV_ENHANCEMENTS
 
-namespace android {
     status_t ExtendedCodec::convertMetaDataToMessage(
             const sp<MetaData> &meta, sp<AMessage> *format) {
         return OK;
@@ -1394,6 +1410,9 @@ namespace android {
         return false;
     }
 
+    ExtendedCodec::kHEVCCodecType ExtendedCodec::useHEVCDecoder(const char *mime) {
+        return ExtendedCodec::kCodecType_None;
+    }
     void ExtendedCodec::enableSmoothStreaming(
             const sp<IOMX> &omx, IOMX::node_id nodeID, bool* isEnabled,
             const char* componentName) {
@@ -1404,9 +1423,10 @@ namespace android {
     bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
         return false;
     }
-} //namespace android
 
 #endif //ENABLE_AV_ENHANCEMENTS
+
+} //namespace android
 
 #if defined(ENABLE_AV_ENHANCEMENTS) || defined(ENABLE_OFFLOAD_ENHANCEMENTS)
 namespace android {

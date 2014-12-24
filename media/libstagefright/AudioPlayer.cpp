@@ -44,6 +44,10 @@
 
 #include "include/AwesomePlayer.h"
 
+#ifdef ENABLE_AV_ENHANCEMENTS
+#include "QCMetaData.h"
+#endif
+
 namespace android {
 
 AudioPlayer::AudioPlayer(
@@ -647,7 +651,7 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
 
             Mutex::Autolock autoLock(mLock);
 
-            if (err != OK) {
+            if (err != OK && err != INFO_FORMAT_CHANGED) {
                 if (!mReachedEOS) {
                     if (useOffload()) {
                         // After seek there is a possible race condition if
