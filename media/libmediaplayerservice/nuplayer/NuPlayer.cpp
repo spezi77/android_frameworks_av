@@ -21,6 +21,7 @@
 #include "NuPlayer.h"
 
 #include "HTTPLiveSource.h"
+#include "HTTPLiveSourceCustom.h"
 #include "NuPlayerDecoder.h"
 #include "NuPlayerDecoderPassThrough.h"
 #include "NuPlayerDriver.h"
@@ -43,10 +44,14 @@
 #include <media/stagefright/MetaData.h>
 #include <gui/IGraphicBufferProducer.h>
 
+#include <cutils/properties.h>
+
 #include "avc_utils.h"
 
 #include "ESDS.h"
 #include <media/stagefright/Utils.h>
+
+#include "ExtendedUtils.h"
 
 namespace android {
 
@@ -176,7 +181,8 @@ NuPlayer::NuPlayer()
       mVideoScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW),
       mStarted(false),
       mBuffering(false),
-      mPlaying(false) {
+      mPlaying(false),
+      mImageShowed(false) {
 
     clearFlushComplete();
     mPlayerExtendedStats = (PlayerExtendedStats *)ExtendedStats::Create(
@@ -234,7 +240,13 @@ void NuPlayer::setDataSourceAsync(
 
     sp<Source> source;
     if (IsHTTPLiveURL(url)) {
-        source = new HTTPLiveSource(notify, httpService, url, headers);
+        char value[PROPERTY_VALUE_MAX];
+        property_get("persist.media.hls.enhancements", value, NULL);
+        if (atoi(value)) {
+            source = new HTTPLiveSourceCustom(notify, httpService, url, headers);
+        } else {
+            source = new HTTPLiveSource(notify, httpService, url, headers);
+        }
     } else if (!strncasecmp(url, "rtsp://", 7)) {
         source = new RTSPSource(
                 notify, httpService, url, headers, mUIDValid, mUID);
@@ -1168,10 +1180,32 @@ void NuPlayer::openAudioSink(const sp<AMessage> &format, bool offloadOnly) {
         flags = AUDIO_OUTPUT_FLAG_NONE;
     }
 
-
     format->setInt64("durationUs", durationUs);
 
-    ALOGV("openAudioSink: format=%s", format->debugString().c_str());
+    // avoid PCM offload when resampler is used
+    bool resampled = false;
+    sp<MetaData> audioMeta = mSource->getFormatMeta(true);
+
+    AString mime;
+    CHECK(format->findString("mime", &mime));
+    if (audioMeta != NULL && !strcasecmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_RAW)) {
+        int32_t srcBitsPerSample, bitsPerSample = 16;
+        int32_t srcChannels, channels = 0;
+        int32_t srcSampleRate, sampleRate = 0;
+        audioMeta->findInt32(kKeyBitsPerSample, &srcBitsPerSample);
+        format->findInt32("bits-per-sample", &bitsPerSample);
+        audioMeta->findInt32(kKeyChannelCount, &srcChannels);
+        format->findInt32("channel-count", &channels);
+        audioMeta->findInt32(kKeySampleRate, &srcSampleRate);
+        format->findInt32("sample-rate", &sampleRate);
+
+        resampled = !((srcBitsPerSample == bitsPerSample) &&
+                      (srcChannels == channels) &&
+                      (srcSampleRate == sampleRate));
+        format->setInt32("resampled", resampled);
+    }
+
+    ALOGV("openAudioSink: resampled=%d format=%s", resampled, format->debugString().c_str());
 
     mOffloadAudio = mRenderer->openAudioSink(
             format, offloadOnly, (mVideoDecoder != NULL), flags);
@@ -1361,6 +1395,14 @@ status_t NuPlayer::feedDecoderInputData(bool audio, const sp<AMessage> &msg) {
                         getDecoder(audio)->supportsSeamlessFormatChange(newFormat);
                     // treat seamless format change separately
                     formatChange = !seamlessFormatChange;
+
+                    if (mImageShowed && !audio) {
+                        // If the image was showed in native window, video
+                        // decoder needs to be changed to reconfigure
+                        // native window
+                        mImageShowed = false;
+                        formatChange = true;
+                    }
                 }
                 bool shutdownOrFlush = formatChange || timeChange;
 
@@ -2100,6 +2142,25 @@ void NuPlayer::onSourceNotify(const sp<AMessage> &msg) {
         case Source::kWhatDrmNoLicense:
         {
             notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, ERROR_DRM_NO_LICENSE);
+            break;
+        }
+
+        case Source::kWhatShowImage:
+        {
+            if (mNativeWindow == NULL) {
+                ALOGW("native window is null");
+                return;
+            }
+            msg->setObject("native-window", mNativeWindow);
+            sp<AMessage> format = new AMessage;
+            int32_t width, height;
+            ExtendedUtils::showImageInNativeWindow(msg, format);
+            if (format->findInt32("width", &width)
+                    && format->findInt32("height", &height)) {
+                ALOGV("show the image with width = %ld,  height = %ld", width, height);
+                notifyListener(MEDIA_SET_VIDEO_SIZE, width, height);
+                mImageShowed = true;
+            }
             break;
         }
 
