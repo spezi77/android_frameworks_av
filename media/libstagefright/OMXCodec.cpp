@@ -74,6 +74,11 @@
 #include <sec_format.h>
 #endif
 
+#ifdef USE_S3D_SUPPORT
+#include "Exynos_OMX_Def.h"
+#include "ExynosHWCService.h"
+#endif
+
 namespace android {
 
 #ifdef USE_SAMSUNG_COLORFORMAT
@@ -289,7 +294,8 @@ void OMXCodec::findMatchingCodecs(
         return;
     }
 
-    if (matchComponentName && !strncmp("FLACDecoder", matchComponentName, 10)) {
+#ifdef QTI_FLAC_DECODER
+    if (matchComponentName && !strncmp("FLACDecoder", matchComponentName, strlen("FLACDecoder"))) {
             matchingCodecs->add();
 
             CodecNameAndQuirks *entry = &matchingCodecs->editItemAt(index);
@@ -297,6 +303,7 @@ void OMXCodec::findMatchingCodecs(
             entry->mQuirks = 0;
             return;
     }
+#endif
 #endif
 
     for (;;) {
@@ -420,10 +427,12 @@ sp<MediaSource> OMXCodec::Create(
 
     Vector<CodecNameAndQuirks> matchingCodecs;
 
-    if (!strncmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC, 10)) {
+#ifdef QTI_FLAC_DECODER
+    if (!strncmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC, strlen(MEDIA_MIMETYPE_AUDIO_FLAC))) {
         findMatchingCodecs(mime, createEncoder,
             "FLACDecoder", flags, &matchingCodecs);
     } else
+#endif
         findMatchingCodecs(
             mime, createEncoder, matchComponentName, flags, &matchingCodecs);
 
@@ -602,7 +611,7 @@ status_t OMXCodec::parseAVCCodecSpecificData(
     // assertion, let's be lenient for now...
     // CHECK((ptr[4] >> 2) == 0x3f);  // reserved
 
-    size_t lengthSize = 1 + (ptr[4] & 3);
+    size_t lengthSize __unused = 1 + (ptr[4] & 3);
 
     // commented out check below as H264_QVGA_500_NO_AUDIO.3gp
     // violates it...
@@ -2194,6 +2203,10 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
     }
     if (mFlags & kEnableGrallocUsageProtected) {
         usage |= GRALLOC_USAGE_PROTECTED;
+#ifdef GRALLOC_USAGE_PRIVATE_NONSECURE
+        if (!(mFlags & kUseSecureInputBuffers))
+            usage |= GRALLOC_USAGE_PRIVATE_NONSECURE;
+#endif
     }
 
     // Make sure to check whether either Stagefright or the video decoder
@@ -2253,7 +2266,12 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
     //    plus an extra buffer to account for incorrect minUndequeuedBufs
     CODEC_LOGI("OMX-buffers: min=%u actual=%u undeq=%d+1",
             def.nBufferCountMin, def.nBufferCountActual, minUndequeuedBufs);
-
+#ifdef BOARD_CANT_REALLOCATE_OMX_BUFFERS
+    // Some devices don't like to set OMX_IndexParamPortDefinition at this
+    // point (even with an unmodified def), so skip it if possible.
+    // This check was present in KitKat.
+    if (def.nBufferCountActual < def.nBufferCountMin + minUndequeuedBufs) {
+#endif
     for (OMX_U32 extraBuffers = 2 + 1; /* condition inside loop */; extraBuffers--) {
         OMX_U32 newBufferCount =
             def.nBufferCountMin + minUndequeuedBufs + extraBuffers;
@@ -2275,6 +2293,9 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
     }
     CODEC_LOGI("OMX-buffers: min=%u actual=%u undeq=%d+1",
             def.nBufferCountMin, def.nBufferCountActual, minUndequeuedBufs);
+#ifdef BOARD_CANT_REALLOCATE_OMX_BUFFERS
+    }
+#endif
 
     err = native_window_set_buffer_count(
             mNativeWindow.get(), def.nBufferCountActual);
@@ -2396,7 +2417,6 @@ status_t OMXCodec::cancelBufferToNativeWindow(BufferInfo *info) {
 OMXCodec::BufferInfo* OMXCodec::dequeueBufferFromNativeWindow() {
     // Dequeue the next buffer from the native window.
     ANativeWindowBuffer* buf;
-    int fenceFd = -1;
     int err = native_window_dequeue_buffer_and_wait(mNativeWindow.get(), &buf);
     if (err != 0) {
       CODEC_LOGE("dequeueBuffer failed w/ error 0x%08x", err);
@@ -2501,7 +2521,6 @@ status_t OMXCodec::pushBlankBuffersToNativeWindow() {
     // on the screen and then been replaced, so an previous video frames are
     // guaranteed NOT to be currently displayed.
     for (int i = 0; i < numBufs + 1; i++) {
-        int fenceFd = -1;
         err = native_window_dequeue_buffer_and_wait(mNativeWindow.get(), &anb);
         if (err != NO_ERROR) {
             ALOGE("error pushing blank frames: dequeueBuffer failed: %s (%d)",
@@ -2966,7 +2985,40 @@ void OMXCodec::onEvent(OMX_EVENTTYPE event, OMX_U32 data1, OMX_U32 data2) {
             break;
         }
 #endif
+#ifdef USE_S3D_SUPPORT
+        case (OMX_EVENTTYPE)OMX_EventS3DInformation:
+        {
+            if (mFlags & kClientNeedsFramebuffer)
+                break;
 
+            sp<IServiceManager> sm = defaultServiceManager();
+            sp<android::IExynosHWCService> hwc = interface_cast<android::IExynosHWCService>(sm->getService(String16("Exynos.HWCService")));
+            if (hwc != NULL) {
+                if (data1 == OMX_TRUE) {
+                    int eS3DMode;
+                    switch (data2) {
+                    case OMX_SEC_FPARGMT_SIDE_BY_SIDE:
+                        eS3DMode = S3D_SBS;
+                        break;
+                    case OMX_SEC_FPARGMT_TOP_BOTTOM:
+                        eS3DMode = S3D_TB;
+                        break;
+                    case OMX_SEC_FPARGMT_CHECKERBRD_INTERL: // unsupport format at HDMI
+                    case OMX_SEC_FPARGMT_COLUMN_INTERL:
+                    case OMX_SEC_FPARGMT_ROW_INTERL:
+                    case OMX_SEC_FPARGMT_TEMPORAL_INTERL:
+                    default:
+                        eS3DMode = S3D_NONE;
+                    }
+
+                    hwc->setHdmiResolution(0, eS3DMode);
+                }
+            } else {
+                ALOGE("Exynos.HWCService is unavailable");
+            }
+            break;
+        }
+#endif
         default:
         {
             CODEC_LOGV("EVENT(%d, %u, %u)", event, data1, data2);

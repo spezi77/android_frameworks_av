@@ -3325,6 +3325,12 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                     isActive = false;
                     break;
                 }
+                else {
+                   if (recentEmpty == 0) {
+                   // no, then ignore the partial underruns as they are allowed indefinitely
+                      break;
+                   }
+                }
                 // fall through
             case TrackBase::STOPPING_2:
             case TrackBase::PAUSED:
@@ -4059,7 +4065,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
         }
 
         if ((track->framesReady() >= minFrames) && track->isReady() && !track->isPaused() &&
-                !track->isStopping_2() && !track->isStopped())
+                !track->isStopping() && !track->isStopped())
         {
             ALOGVV("track %d s=%08x [OK]", track->name(), cblk->mServer);
 
@@ -4691,8 +4697,8 @@ void AudioFlinger::OffloadThread::onFatalError()
 {
     Mutex::Autolock _l(mLock);
 
-   // call invalidate, to recreate track on fatal error
-   invalidateTracks_l(AUDIO_STREAM_MUSIC);
+    // call invalidate, to recreate track on fatal error
+    invalidateTracks_l(AUDIO_STREAM_MUSIC);
 }
 
 // ----------------------------------------------------------------------------
@@ -4721,6 +4727,8 @@ void AudioFlinger::DuplicatingThread::threadLoop_mix()
     } else {
         if (mMixerBufferValid) {
             memset(mMixerBuffer, 0, mMixerBufferSize);
+        } else if (mEffectBufferValid) {
+            memset(mEffectBuffer, 0, mEffectBufferSize);
         } else {
             memset(mSinkBuffer, 0, mSinkBufferSize);
         }
@@ -4742,7 +4750,11 @@ void AudioFlinger::DuplicatingThread::threadLoop_sleepTime()
     } else if (mBytesWritten != 0) {
         if (mMixerStatus == MIXER_TRACKS_ENABLED) {
             writeFrames = mNormalFrameCount;
-            memset(mSinkBuffer, 0, mSinkBufferSize);
+            if (mMixerBufferValid) {
+                memset(mMixerBuffer, 0, mMixerBufferSize);
+            } else {
+                memset(mSinkBuffer, 0, mSinkBufferSize);
+            }
         } else {
             // flush remaining overflow buffers in output tracks
             writeFrames = 0;

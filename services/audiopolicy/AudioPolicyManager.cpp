@@ -781,7 +781,7 @@ void AudioPolicyManager::setPhoneState(audio_mode_t state)
             ALOGD("SetPhoneState: Voice call state = %d", voice_call_state);
     }
 
-    if (mode_in_call && voice_call_state) {
+    if (mode_in_call && voice_call_state && !mvoice_call_state) {
         ALOGD("Entering to call mode oldState :: %d state::%d ",oldState, state);
         mvoice_call_state = voice_call_state;
         if (prop_playback_enabled) {
@@ -4562,8 +4562,7 @@ audio_devices_t AudioPolicyManager::getNewOutputDevice(audio_io_handle_t output,
                 && (!primaryOutputDesc->isStrategyActive(STRATEGY_MEDIA)))) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL) ||
-                (primaryOutputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)
-                && (!primaryOutputDesc->isStrategyActive(STRATEGY_MEDIA)))) {
+               primaryOutputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_MEDIA)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
@@ -5160,11 +5159,15 @@ uint32_t AudioPolicyManager::setOutputDevice(audio_io_handle_t output,
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
 
     // Do not change the routing if:
-    //  - the requested device is AUDIO_DEVICE_NONE
-    //  - the requested device is the same as current device and force is not specified.
+    //      the requested device is AUDIO_DEVICE_NONE
+    //      OR the requested device is the same as current device
+    //  AND force is not specified
+    //  AND the output is connected by a valid audio patch.
     // Doing this check here allows the caller to call setOutputDevice() without conditions
-    if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force) {
-        ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
+    if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force &&
+            outputDesc->mPatchHandle != 0) {
+        ALOGV("setOutputDevice() setting same device %04x or null device for output %d",
+              device, output);
         return muteWaitMs;
     }
 
@@ -5963,7 +5966,7 @@ status_t AudioPolicyManager::checkAndSetVolume(audio_stream_type_t stream,
         }
 
         if (voiceVolume != mLastVoiceVolume && ((output == mPrimaryOutput) ||
-            isDirectOutput(output))) {
+            isDirectOutput(output) || device & AUDIO_DEVICE_OUT_ALL_USB)) {
             mpClientInterface->setVoiceVolume(voiceVolume, delayMs);
             mLastVoiceVolume = voiceVolume;
         }
