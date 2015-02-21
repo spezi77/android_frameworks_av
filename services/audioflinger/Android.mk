@@ -62,7 +62,7 @@ LOCAL_STATIC_LIBRARIES := \
 #QTI Resampler
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER)),true)
-LOCAL_CFLAGS += -DQTI_RESAMPLER
+LOCAL_CFLAGS += -O2 -DQTI_RESAMPLER
 endif
 endif
 #QTI Resampler
@@ -74,16 +74,16 @@ LOCAL_SRC_FILES += FastMixer.cpp FastMixerState.cpp AudioWatchdog.cpp
 LOCAL_SRC_FILES += FastThread.cpp FastThreadState.cpp
 LOCAL_SRC_FILES += FastCapture.cpp FastCaptureState.cpp
 
-LOCAL_CFLAGS += -DSTATE_QUEUE_INSTANTIATIONS='"StateQueueInstantiations.cpp"'
+LOCAL_CFLAGS += -O2 -DSTATE_QUEUE_INSTANTIATIONS='"StateQueueInstantiations.cpp"'
 
 # Define ANDROID_SMP appropriately. Used to get inline tracing fast-path.
 ifeq ($(TARGET_CPU_SMP),true)
-    LOCAL_CFLAGS += -DANDROID_SMP=1
+    LOCAL_CFLAGS += -O2 -DANDROID_SMP=1
 else
-    LOCAL_CFLAGS += -DANDROID_SMP=0
+    LOCAL_CFLAGS += -O2 -DANDROID_SMP=0
 endif
 
-LOCAL_CFLAGS += -fvisibility=hidden
+LOCAL_CFLAGS += -O2 -fvisibility=hidden
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -138,12 +138,12 @@ ifdef TARGET_2ND_ARCH
 LOCAL_SRC_FILES_$(TARGET_2ND_ARCH) += AudioResamplerQTI.cpp.arm
 LOCAL_C_INCLUDES_$(TARGET_2ND_ARCH) += $(TARGET_OUT_HEADERS)/mm-audio/audio-src
 LOCAL_SHARED_LIBRARIES_$(TARGET_2ND_ARCH) += libqct_resampler
-LOCAL_CFLAGS_$(TARGET_2ND_ARCH) += -DQTI_RESAMPLER
+LOCAL_CFLAGS_$(TARGET_2ND_ARCH) += -O2 -DQTI_RESAMPLER
 else
 LOCAL_SRC_FILES += AudioResamplerQTI.cpp.arm
 LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-src
 LOCAL_SHARED_LIBRARIES += libqct_resampler
-LOCAL_CFLAGS += -DQTI_RESAMPLER
+LOCAL_CFLAGS += -O2 -DQTI_RESAMPLER
 endif
 endif
 endif
