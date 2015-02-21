@@ -605,6 +605,16 @@ sp<IAudioTrack> AudioFlinger::createTrack(
             goto Exit;
         }
 
+        {
+            Mutex::Autolock _l(thread->mLock);
+            // avoid two active tracks added to offload thread
+            if (thread->mType == PlaybackThread::OFFLOAD && (thread->mActiveTracks.size() > 0)) {
+                ALOGD("decline track creation for offload as an active track already exsits");
+                lStatus = BAD_VALUE;
+                goto Exit;
+            }
+        }
+
         pid_t pid = IPCThreadState::self()->getCallingPid();
         client = registerPid(pid);
 
@@ -1536,7 +1546,7 @@ AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
     :   RefBase(),
         mAudioFlinger(audioFlinger),
         // FIXME should be a "k" constant not hard-coded, in .h or ro. property, see 4 lines below
-        mMemoryDealer(new MemoryDealer(1028*1024, "AudioFlinger::Client")), //1MB + 1 more 4k page
+        mMemoryDealer(new MemoryDealer(2048*1024, "AudioFlinger::Client")), //2MB
         mPid(pid),
         mTimedTrackCount(0)
 {

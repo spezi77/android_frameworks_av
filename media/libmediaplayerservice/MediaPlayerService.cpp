@@ -491,6 +491,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
             while (!feof(f)) {
                 fgets(buffer, SIZE, f);
                 if (strstr(buffer, " /storage/") ||
+                    strstr(buffer, " /mnt/sdcard/") ||
                     strstr(buffer, " /system/sounds/") ||
                     strstr(buffer, " /data/") ||
                     strstr(buffer, " /system/media/")) {
@@ -527,6 +528,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
                                     linkto[len] = 0;
                                 }
                                 if (strstr(linkto, "/storage/") == linkto ||
+                                    strstr(linkto, "/mnt/sdcard/") == linkto ||
                                     strstr(linkto, "/system/sounds/") == linkto ||
                                     strstr(linkto, "/data/") == linkto ||
                                     strstr(linkto, "/system/media/") == linkto) {
@@ -2227,7 +2229,12 @@ status_t MediaPlayerService::AudioCache::open(
     mMsecsPerFrame = 1.e3 / (float) sampleRate;
     mFrameSize =  audio_is_linear_pcm(mFormat)
             ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
-    mFrameCount = mHeap->getSize() / mFrameSize;
+
+    if (cb == NULL) {
+        // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
+        // Otherwise use default buffersize.
+        mFrameCount = mHeap->getSize() / mFrameSize;
+    }
 
     if (cb != NULL) {
         mCallbackThread = new CallbackThread(this, cb, cookie);

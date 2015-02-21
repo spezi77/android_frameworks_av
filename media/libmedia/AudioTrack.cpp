@@ -1516,11 +1516,7 @@ status_t AudioTrack::createTrack_l()
         mStaticProxy = new StaticAudioTrackClientProxy(cblk, buffers, frameCount, mFrameSizeAF);
         mProxy = mStaticProxy;
     }
-
-    mProxy->setVolumeLR(gain_minifloat_pack(
-            gain_from_float(mVolume[AUDIO_INTERLEAVE_LEFT]),
-            gain_from_float(mVolume[AUDIO_INTERLEAVE_RIGHT])));
-
+    mProxy->setVolumeLR(GAIN_MINIFLOAT_PACKED_UNITY);
     mProxy->setSendLevel(mSendLevel);
     mProxy->setSampleRate(mSampleRate);
     mProxy->setMinimum(mNotificationFramesAct);
@@ -2207,13 +2203,6 @@ status_t AudioTrack::restoreTrack_l(const char *from)
 #endif
         if (mState == STATE_ACTIVE) {
             result = mAudioTrack->start();
-        }
-
-        if (mVolume[AUDIO_INTERLEAVE_LEFT] != 1.0 || mVolume[AUDIO_INTERLEAVE_RIGHT] != 1.0) {
-            ALOGV("restore setVolume proxy left:%f right:%f",mVolume[AUDIO_INTERLEAVE_LEFT]
-                , mVolume[AUDIO_INTERLEAVE_RIGHT]);
-            mProxy->setVolumeLR(gain_minifloat_pack(gain_from_float(mVolume[AUDIO_INTERLEAVE_LEFT])
-                , gain_from_float(mVolume[AUDIO_INTERLEAVE_RIGHT])));
         }
     }
     if (result != NO_ERROR) {
