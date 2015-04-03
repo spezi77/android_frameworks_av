@@ -49,9 +49,9 @@ static int ALIGN(int x, int y) {
 }
 #endif
 
-SoftwareRenderer::SoftwareRenderer(
-        const sp<ANativeWindow> &nativeWindow, const sp<MetaData> &meta)
-    : mConverter(NULL),
+SoftwareRenderer::SoftwareRenderer(const sp<ANativeWindow> &nativeWindow)
+    : mColorFormat(OMX_COLOR_FormatUnused),
+      mConverter(NULL),
       mYUVMode(None),
       mNativeWindow(nativeWindow),
       mWidth(0),
@@ -222,11 +222,6 @@ void SoftwareRenderer::resetFormatIfChanged(const sp<AMessage> &format) {
         CHECK_EQ(0, native_window_set_buffers_transform(
                     mNativeWindow.get(), transform));
     }
-}
-
-SoftwareRenderer::~SoftwareRenderer() {
-    delete mConverter;
-    mConverter = NULL;
 }
 
 #ifndef QCOM_LEGACY_OMX
