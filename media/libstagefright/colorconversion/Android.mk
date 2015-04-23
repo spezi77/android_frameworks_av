@@ -14,7 +14,7 @@ ifeq ($(TARGET_QCOM_LEGACY_OMX),true)
 ifneq ($(TARGET_QCOM_DISPLAY_VARIANT),)
         LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/display-$(TARGET_QCOM_DISPLAY_VARIANT)/libgralloc
 else
-        LOCAL_C_INCLUDES += $(call project-path-for,qcom-display)/libgralloc
+        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/display-legacy/libgralloc
 endif
 endif
 
