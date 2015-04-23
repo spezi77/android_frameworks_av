@@ -1463,9 +1463,6 @@ OMXCodec::OMXCodec(
 #endif
               || !strncmp(componentName, "OMX.ffmpeg.", 11))
                         ? NULL : nativeWindow),
-      mNumBFrames(0),
-      mInSmoothStreamingMode(false),
-      mOutputCropChanged(false) {
     mPortStatus[kPortIndexInput] = ENABLED;
     mPortStatus[kPortIndexOutput] = ENABLED;
 

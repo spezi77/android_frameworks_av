@@ -171,7 +171,6 @@ void SoftwareRenderer::resetFormatIfChanged(const sp<AMessage> &format) {
 #endif
 #endif
             ));
-#endif
 
     CHECK_EQ(0,
             native_window_set_scaling_mode(
@@ -342,8 +341,6 @@ void SoftwareRenderer::render(
             dst_u += dst_c_stride;
             dst_v += dst_c_stride;
         }
-    } else {
-        LOG_ALWAYS_FATAL("bad color format %#x", mColorFormat);
     }
 
     CHECK_EQ(0, mapper.unlock(buf->handle));
