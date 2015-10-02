@@ -101,7 +101,10 @@ void CameraSourceListener::postDataTimestamp(
 
 static int32_t getColorFormat(const char* colorFormat) {
 #ifdef MTK_HARDWARE
-    ALOGD("getColorFormat(%s)", colorFormat);
+    if (!colorFormat) {
+        ALOGE("Invalid color format");
+        return -1;
+    }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV420P)) {
         // YV12
