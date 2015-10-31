@@ -469,10 +469,6 @@ void ACodec::initiateShutdown(bool keepComponentAllocated) {
     sp<AMessage> msg = new AMessage(kWhatShutdown, id());
     msg->setInt32("keepComponentAllocated", keepComponentAllocated);
     msg->post();
-    if (!keepComponentAllocated) {
-        // ensure shutdown completes in 10 seconds
-        (new AMessage(kWhatReleaseCodecInstance, this))->post(10000000);
-    }
 }
 
 void ACodec::signalRequestIDRFrame() {
