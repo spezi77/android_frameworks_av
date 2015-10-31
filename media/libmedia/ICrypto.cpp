@@ -33,7 +33,6 @@ enum {
     DESTROY_PLUGIN,
     REQUIRES_SECURE_COMPONENT,
     DECRYPT,
-    NOTIFY_RESOLUTION,
 };
 
 struct BpCrypto : public BpInterface<ICrypto> {
@@ -148,15 +147,6 @@ struct BpCrypto : public BpInterface<ICrypto> {
         }
 
         return result;
-    }
-
-    virtual void notifyResolution(
-        uint32_t width, uint32_t height) {
-        Parcel data, reply;
-        data.writeInterfaceToken(ICrypto::getInterfaceDescriptor());
-        data.writeInt32(width);
-        data.writeInt32(height);
-        remote()->transact(NOTIFY_RESOLUTION, data, &reply);
     }
 
 private:
@@ -300,20 +290,10 @@ status_t BnCrypto::onTransact(
             return OK;
         }
 
-        case NOTIFY_RESOLUTION:
-        {
-            CHECK_INTERFACE(ICrypto, data, reply);
-
-            int32_t width = data.readInt32();
-            int32_t height = data.readInt32();
-            notifyResolution(width, height);
-
-            return OK;
-        }
-
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }
 }
 
 }  // namespace android
+

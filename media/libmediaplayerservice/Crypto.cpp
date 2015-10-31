@@ -257,12 +257,4 @@ ssize_t Crypto::decrypt(
             errorDetailMsg);
 }
 
-void Crypto::notifyResolution(uint32_t width, uint32_t height) {
-    Mutex::Autolock autoLock(mLock);
-
-    if (mInitCheck == OK && mPlugin != NULL) {
-        mPlugin->notifyResolution(width, height);
-    }
-}
-
 }  // namespace android
