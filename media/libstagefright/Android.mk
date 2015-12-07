@@ -149,6 +149,15 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+#QTI FLAC Decoder
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
+LOCAL_SRC_FILES += FLACDecoder.cpp
+LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-flac
+LOCAL_CFLAGS := -DQTI_FLAC_DECODER
+endif
+endif
+
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
@@ -177,6 +186,23 @@ else #TARGET_ENABLE_AV_ENHANCEMENTS
 ifeq ($(TARGET_ENABLE_OFFLOAD_ENHANCEMENTS),true)
     LOCAL_CFLAGS += -DENABLE_OFFLOAD_ENHANCEMENTS
 endif
+endif
+
+ifeq ($(BOARD_HAS_MTK_HARDWARE),true)
+    ifeq ($(BOARD_MTK_OMX_USES_PRIVATE_YUV),true)
+        LOCAL_CFLAGS += -DMTK_OMX_USES_PRIVATE_YUV
+    endif
+
+    LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/mediatek/media/include
+
+    LOCAL_SHARED_LIBRARIES +=  \
+        libdpframework \
+        libstagefright_memutil
+
+    LOCAL_STATIC_LIBRARIES += \
+        libstagefright_bufferallocator \
+        libstagefright_mtkcolorconverter
 endif
 
 LOCAL_SRC_FILES += \

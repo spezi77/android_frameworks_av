@@ -53,6 +53,13 @@
 #include "include/ExtendedUtils.h"
 #endif
 
+#ifdef MTK_HARDWARE
+#define ENABLE_MTK_BUF_ADDR_ALIGNMENT
+#define MTK_BUF_ADDR_ALIGNMENT_VALUE 512
+
+#define ROUND_16(X)     ((X + 0xF) & (~0xF))
+#endif
+
 namespace android {
 
 template<class T>
@@ -376,6 +383,7 @@ ACodec::ACodec()
       mSentFormat(false),
       mIsEncoder(false),
       mUseMetadataOnEncoderOutput(false),
+      mFatalError(false),
       mShutdownInProgress(false),
       mIsConfiguredForAdaptivePlayback(false),
       mEncoderDelay(0),
@@ -502,17 +510,25 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
                 mNode, OMX_IndexParamPortDefinition, &def, sizeof(def));
 
         if (err == OK) {
+#if defined(MTK_HARDWARE) && defined(ENABLE_MTK_BUF_ADDR_ALIGNMENT)
+            def.nBufferSize = ((def.nBufferSize + MTK_BUF_ADDR_ALIGNMENT_VALUE-1) & ~(MTK_BUF_ADDR_ALIGNMENT_VALUE-1));
+#endif
             ALOGV("[%s] Allocating %lu buffers of size %lu on %s port",
                     mComponentName.c_str(),
                     def.nBufferCountActual, def.nBufferSize,
                     portIndex == kPortIndexInput ? "input" : "output");
 
             size_t totalSize = def.nBufferCountActual * def.nBufferSize;
+#if defined(MTK_HARDWARE) && defined(ENABLE_MTK_BUF_ADDR_ALIGNMENT)
+            totalSize = def.nBufferCountActual * (((def.nBufferSize + MTK_BUF_ADDR_ALIGNMENT_VALUE-1) & ~(MTK_BUF_ADDR_ALIGNMENT_VALUE-1)) + MTK_BUF_ADDR_ALIGNMENT_VALUE);
+#endif
             mDealer[portIndex] = new MemoryDealer(totalSize, "ACodec");
 
             for (OMX_U32 i = 0; i < def.nBufferCountActual; ++i) {
                 sp<IMemory> mem = mDealer[portIndex]->allocate(def.nBufferSize);
-                CHECK(mem.get() != NULL);
+                if (mem == NULL || mem->pointer() == NULL) {
+                    return NO_MEMORY;
+                }
 
                 BufferInfo info;
                 info.mStatus = BufferInfo::OWNED_BY_US;
@@ -543,7 +559,14 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
                 }
 
                 if (mem != NULL) {
+#if defined(MTK_HARDWARE) && defined(ENABLE_MTK_BUF_ADDR_ALIGNMENT)
+                    OMX_U8 *ptr = static_cast<OMX_U8 *>(mem->pointer());
+                    OMX_U32 pBuffer = ((reinterpret_cast<OMX_U32>(ptr)+(MTK_BUF_ADDR_ALIGNMENT_VALUE-1))&~(MTK_BUF_ADDR_ALIGNMENT_VALUE-1));
+                    info.mData = new ABuffer((void*)pBuffer, def.nBufferSize);
+                    ALOGD("@debug: Buffer[%d], %p(%p)", i, info.mData->data(), ptr);
+#else
                     info.mData = new ABuffer(mem->pointer(), def.nBufferSize);
+#endif
                 }
 
                 mBuffers[portIndex].push(info);
@@ -597,6 +620,39 @@ status_t ACodec::configureOutputBuffersFromNativeWindow(
     def.format.video.nFrameWidth,
     def.format.video.nFrameHeight,
     eNativeColorFormat);
+#elif defined(MTK_HARDWARE)
+    uint32_t eHalWidth       = def.format.video.nFrameWidth;
+    uint32_t eHalHeight      = def.format.video.nFrameHeight;
+    uint32_t eHalColorFormat = def.format.video.eColorFormat;
+    if (!strncmp("OMX.MTK.", mComponentName.c_str(), 8)) {
+        // FIXME: we are always passing the clearmotion variants
+        // should we go with other formats?
+        eHalWidth = def.format.video.nStride;
+        eHalHeight = def.format.video.nSliceHeight;
+#ifdef MTK_OMX_USES_PRIVATE_YUV
+       eHalColorFormat = HAL_PIXEL_FORMAT_YUV_PRIVATE;
+#else
+       switch (def.format.video.eColorFormat) {
+           case OMX_COLOR_FormatYUV420Planar:
+               eHalColorFormat = HAL_PIXEL_FORMAT_I420;
+               break;
+           case OMX_COLOR_FormatVendorMTKYUV:
+               eHalColorFormat = HAL_PIXEL_FORMAT_NV12_BLK;
+               break;
+           case OMX_MTK_COLOR_FormatYV12:
+               eHalColorFormat = HAL_PIXEL_FORMAT_YV12;
+               break;
+           default:
+               eHalColorFormat = HAL_PIXEL_FORMAT_I420;
+               break;
+       }
+#endif
+    }
+    err = native_window_set_buffers_geometry(
+            mNativeWindow.get(),
+            eHalWidth,
+            eHalHeight,
+            eHalColorFormat);
 #else
     err = native_window_set_buffers_geometry(
             mNativeWindow.get(),
@@ -623,6 +679,28 @@ status_t ACodec::configureOutputBuffersFromNativeWindow(
     if (mFlags & kFlagIsSecure) {
         usage |= GRALLOC_USAGE_PROTECTED;
     }
+
+#if 0  // TODO: defer fix DRM
+#ifndef ANDROID_DEFAULT_CODE
+
+    if (mFlags & kFlagIsProtect) {
+        usage |= GRALLOC_USAGE_PROTECTED;
+        ALOGD("mFlags & kFlagIsProtect: %d, usage %x", kFlagIsProtect, usage);
+    }
+
+#ifdef MTK_SEC_VIDEO_PATH_SUPPORT
+    /* 
+        use secure buffer for secure video path
+        Note:
+            1. GTS1.3 and WVL3 case, kFlagIsSecure will not use.
+    */
+	if (mFlags & kFlagIsSecure) {
+		usage |=  GRALLOC_USAGE_SECURE;
+        ALOGW("ACODEC: use GRALLOC_USAGE_SECURE\n");				
+	}
+#endif	
+#endif
+#endif
 
     // Make sure to check whether either Stagefright or the video decoder
     // requested protected buffers.
@@ -662,6 +740,14 @@ status_t ACodec::configureOutputBuffersFromNativeWindow(
                 strerror(-err), -err);
         return err;
     }
+
+#if defined(QCOM_HARDWARE) || defined(MTK_HARDWARE)
+    //add an extra buffer to display queue to get around dequeue+wait
+    //blocking too long (more than 1 Vsync) in case BufferQeuue is in
+    //sync-mode and advertizes only 1 buffer
+    (*minUndequeuedBuffers)++;
+    ALOGI("NOTE: Overriding minUndequeuedBuffers to %lu",*minUndequeuedBuffers);
+#endif
 
     // XXX: Is this the right logic to use?  It's not clear to me what the OMX
     // buffer counts refer to - how do they account for the renderer holding on
@@ -780,7 +866,9 @@ status_t ACodec::allocateOutputMetaDataBuffers() {
 
         sp<IMemory> mem = mDealer[kPortIndexOutput]->allocate(
                 sizeof(struct VideoDecoderOutputMetaData));
-        CHECK(mem.get() != NULL);
+        if (mem == NULL || mem->pointer() == NULL) {
+            return NO_MEMORY;
+        }
         info.mData = new ABuffer(mem->pointer(), mem->size());
 
         // we use useBuffer for metadata regardless of quirks
@@ -856,6 +944,12 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
     ANativeWindowBuffer *buf;
     int fenceFd = -1;
     CHECK(mNativeWindow.get() != NULL);
+
+    if (mFatalError) {
+        ALOGW("not dequeuing from native window due to fatal error");
+        return NULL;
+    }
+
     if (native_window_dequeue_buffer_and_wait(mNativeWindow.get(), &buf) != 0) {
         ALOGE("dequeueBuffer failed.");
         return NULL;
@@ -1023,8 +1117,13 @@ status_t ACodec::setComponentRole(
             "video_decoder.vp9", "video_encoder.vp9" },
         { MEDIA_MIMETYPE_AUDIO_RAW,
             "audio_decoder.raw", "audio_encoder.raw" },
+#ifdef QTI_FLAC_DECODER
+        { MEDIA_MIMETYPE_AUDIO_FLAC,
+            "audio_decoder.raw", NULL },
+#else
         { MEDIA_MIMETYPE_AUDIO_FLAC,
             "audio_decoder.flac", "audio_encoder.flac" },
+#endif
         { MEDIA_MIMETYPE_AUDIO_MSGSM,
             "audio_decoder.gsm", "audio_encoder.gsm" },
     };
@@ -1938,16 +2037,35 @@ status_t ACodec::setupVideoEncoder(const char *mime, const sp<AMessage> &msg) {
         stride = width;
     }
 
+#ifdef MTK_HARDWARE
+    video_def->nStride = ROUND_16(stride);
+#else
     video_def->nStride = stride;
+#endif
 
     int32_t sliceHeight;
     if (!msg->findInt32("slice-height", &sliceHeight)) {
         sliceHeight = height;
     }
 
+#ifdef MTK_HARDWARE
+    video_def->nSliceHeight = ROUND_16(sliceHeight);
+#else
     video_def->nSliceHeight = sliceHeight;
+#endif
 
+#ifdef MTK_HARDWARE
+    if( colorFormat == OMX_COLOR_Format16bitRGB565 )
+        def.nBufferSize = (video_def->nStride * video_def->nSliceHeight * 2);
+    else if( colorFormat == OMX_COLOR_Format24bitRGB888 )
+        def.nBufferSize = (video_def->nStride * video_def->nSliceHeight * 3);
+    else if( colorFormat == OMX_COLOR_Format32bitARGB8888 )
+        def.nBufferSize = (video_def->nStride * video_def->nSliceHeight * 4);
+    else
+        def.nBufferSize = (video_def->nStride * video_def->nSliceHeight * 3) / 2;
+#else
     def.nBufferSize = (video_def->nStride * video_def->nSliceHeight * 3) / 2;
+#endif
 
     float frameRate;
     if (!msg->findFloat("frame-rate", &frameRate)) {
@@ -2819,6 +2937,9 @@ void ACodec::signalError(OMX_ERRORTYPE error, status_t internalError) {
     sp<AMessage> notify = mNotify->dup();
     notify->setInt32("what", ACodec::kWhatError);
     notify->setInt32("omx-error", error);
+
+    mFatalError = true;
+
     notify->setInt32("err", internalError);
     notify->post();
 }
@@ -3729,7 +3850,11 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
         // about any notifications in the afterlife.
         mDeathNotifier.clear();
     }
-
+    int32_t hardwarecodecOnly = 0;
+    if (msg->findInt32("hardwarecodecOnly", &hardwarecodecOnly)
+            && hardwarecodecOnly == 1) {
+        ALOGV("use hardware codec only");
+    }
     Vector<OMXCodec::CodecNameAndQuirks> matchingCodecs;
 
     AString mime;
@@ -3764,7 +3889,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
                 mime.c_str(),
                 encoder, // createEncoder
                 NULL,  // matchComponentName
-                0,     // flags
+                hardwarecodecOnly ? OMXCodec::kHardwareCodecsOnly : 0,     // flags
                 &matchingCodecs);
     }
 

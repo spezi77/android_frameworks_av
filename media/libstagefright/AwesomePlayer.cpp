@@ -233,6 +233,9 @@ AwesomePlayer::AwesomePlayer()
       mTextDriver(NULL),
       mOffloadAudio(false),
       mAudioTearDown(false),
+#ifdef MTK_HARDWARE
+      mAVSyncTimeUs(-1),
+#endif
       mReadRetry(false),
       mIsFirstFrameAfterResume(false),
       mCustomAVSync(false),
@@ -805,16 +808,18 @@ void AwesomePlayer::onVideoLagUpdate() {
     }
     mVideoLagEventPending = false;
 
-    int64_t audioTimeUs = mAudioPlayer->getMediaTimeUs();
-    int64_t videoLateByUs = audioTimeUs - mVideoTimeUs;
+    if (!(mFlags & AUDIO_AT_EOS)) {
+        int64_t audioTimeUs = mAudioPlayer->getMediaTimeUs();
+        int64_t videoLateByUs = audioTimeUs - mVideoTimeUs;
 
-    if (!(mFlags & VIDEO_AT_EOS) && videoLateByUs > 300000ll) {
-        ALOGV("video late by %lld ms.", videoLateByUs / 1000ll);
+        if (!(mFlags & VIDEO_AT_EOS) && videoLateByUs > 300000ll) {
+            ALOGV("video late by %lld ms.", videoLateByUs / 1000ll);
 
-        notifyListener_l(
-                MEDIA_INFO,
-                MEDIA_INFO_VIDEO_TRACK_LAGGING,
-                videoLateByUs / 1000ll);
+            notifyListener_l(
+                    MEDIA_INFO,
+                    MEDIA_INFO_VIDEO_TRACK_LAGGING,
+                    videoLateByUs / 1000ll);
+        }
     }
 
     postVideoLagEvent_l();
@@ -1345,6 +1350,13 @@ status_t AwesomePlayer::startAudioPlayer_l(bool sendErrorNotification) {
             postAudioSeekComplete();
         } else {
             notifyIfMediaStarted_l();
+        }
+
+        // Kick off the text driver in audio in case we are playing an audio only file
+        if ((mFlags & TEXTPLAYER_INITIALIZED)
+                && !(mFlags & (TEXT_RUNNING | SEEK_PREVIEW))) {
+            mTextDriver->start();
+            modifyFlags(TEXT_RUNNING, SET);
         }
     } else {
         err = mAudioPlayer->resume();
@@ -1999,6 +2011,17 @@ void AwesomePlayer::setVideoSource(sp<MediaSource> source) {
     mVideoTrack = source;
 }
 
+#ifdef MTK_HARDWARE
+void AwesomePlayer::mtk_omx_get_current_time(int64_t* pReal_time) {
+        if((mFlags & FIRST_FRAME) || mSeeking == SEEK) {
+                *pReal_time = -1;
+        } else {
+                *pReal_time = mAVSyncTimeUs;
+        }
+
+}
+#endif
+
 status_t AwesomePlayer::initVideoDecoder(uint32_t flags) {
     ATRACE_CALL();
 
@@ -2423,6 +2446,9 @@ void AwesomePlayer::onVideoEvent() {
         nowUs = estimateRealTimeUs(ts, systemTimeUs) - mTimeSourceDeltaUs;
 
         latenessUs = nowUs - timeUs;
+#ifdef MTK_HARDWARE
+        mAVSyncTimeUs = nowUs;
+#endif
 
         if (latenessUs >= 0) {
             ATRACE_INT("Video Lateness (ms)", latenessUs / 1E3);
@@ -2431,6 +2457,7 @@ void AwesomePlayer::onVideoEvent() {
         }
 
         if (latenessUs > 500000ll
+                && !(mFlags & AUDIO_AT_EOS)
                 && mAudioPlayer != NULL
                 && mAudioPlayer->getMediaTimeMapping(
                     &realTimeUs, &mediaTimeUs)) {

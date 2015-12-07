@@ -27,6 +27,11 @@
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/Utils.h>
 
+/* TODO: remove after being merged into other branches */
+#ifndef UINT32_MAX
+#define UINT32_MAX       (4294967295U)
+#endif
+
 namespace android {
 
 // static
@@ -230,6 +235,9 @@ status_t SampleTable::setSampleToChunkParams(
         return ERROR_MALFORMED;
     }
 
+    if (SIZE_MAX / sizeof(SampleToChunkEntry) <= mNumSampleToChunkOffsets)
+        return ERROR_OUT_OF_RANGE;
+
     mSampleToChunkEntries =
         new SampleToChunkEntry[mNumSampleToChunkOffsets];
 
@@ -279,6 +287,9 @@ status_t SampleTable::setSampleSizeParams(
 
     mDefaultSampleSize = U32_AT(&header[4]);
     mNumSampleSizes = U32_AT(&header[8]);
+    if (mNumSampleSizes > (UINT32_MAX - 12) / 16) {
+        return ERROR_MALFORMED;
+    }
 
     if (type == kSampleSizeType32) {
         mSampleSizeFieldSize = 32;
@@ -330,7 +341,7 @@ status_t SampleTable::setTimeToSampleParams(
     }
 
     mTimeToSampleCount = U32_AT(&header[4]);
-    uint64_t allocSize = mTimeToSampleCount * 2 * sizeof(uint32_t);
+    uint64_t allocSize = (uint64_t)mTimeToSampleCount * 2 * sizeof(uint32_t);
     if (allocSize > SIZE_MAX) {
         return ERROR_OUT_OF_RANGE;
     }
@@ -377,7 +388,7 @@ status_t SampleTable::setCompositionTimeToSampleParams(
     }
 
     mNumCompositionTimeDeltaEntries = numEntries;
-    uint64_t allocSize = numEntries * 2 * sizeof(uint32_t);
+    uint64_t allocSize = (uint64_t)numEntries * 2 * sizeof(uint32_t);
     if (allocSize > SIZE_MAX) {
         return ERROR_OUT_OF_RANGE;
     }
@@ -427,7 +438,7 @@ status_t SampleTable::setSyncSampleParams(off64_t data_offset, size_t data_size)
         ALOGV("Table of sync samples is empty or has only a single entry!");
     }
 
-    uint64_t allocSize = mNumSyncSamples * sizeof(uint32_t);
+    uint64_t allocSize = mNumSyncSamples * (uint64_t)sizeof(uint32_t);
     if (allocSize > SIZE_MAX) {
         return ERROR_OUT_OF_RANGE;
     }
@@ -496,7 +507,7 @@ int SampleTable::CompareIncreasingTime(const void *_a, const void *_b) {
 void SampleTable::buildSampleEntriesTable() {
     Mutex::Autolock autoLock(mLock);
 
-    if (mSampleTimeEntries != NULL) {
+    if (mSampleTimeEntries != NULL || mNumSampleSizes == 0) {
         return;
     }
 
@@ -538,6 +549,10 @@ status_t SampleTable::findSampleAtTime(
         uint64_t req_time, uint64_t scale_num, uint64_t scale_den,
         uint32_t *sample_index, uint32_t flags) {
     buildSampleEntriesTable();
+
+    if (mSampleTimeEntries == NULL) {
+        return ERROR_OUT_OF_RANGE;
+    }
 
     uint32_t left = 0;
     uint32_t right_plus_one = mNumSampleSizes;
