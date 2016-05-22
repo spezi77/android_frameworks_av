@@ -319,12 +319,14 @@ status_t FFMPEGSoftCodec::setVideoFormat(
     // from the CAF L release. It was unfortunately moved to a proprietary
     // blob and an architecture which is hellish for OEMs who wish to
     // customize the platform.
-    if (err == OK && (!strncmp(componentName, "OMX.qcom.", 9))) {
+    if (err == OK && (!strncmp(componentName, "OMX.qcom.", 9)
+        || !strncmp(componentName, "OMX.ittiam.", 11))) {
         status_t xerr = OK;
 
 
         int32_t mode = 0;
         OMX_QCOM_PARAM_PORTDEFINITIONTYPE portFmt;
+        InitOMXParams(&portFmt);
         portFmt.nPortIndex = kPortIndexInput;
 
         if (msg->findInt32("use-arbitrary-mode", &mode) && mode) {
