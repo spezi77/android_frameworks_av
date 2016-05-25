@@ -31,23 +31,27 @@
 #include <media/stagefright/MediaErrors.h>
 
 static const OMX_U32 kPortIndexInput = 0;
+static const OMX_U32 kPortIndexOutput = 1;
 
 namespace android {
 
 struct BufferMeta {
-    BufferMeta(const sp<IMemory> &mem, bool is_backup = false)
+    BufferMeta(const sp<IMemory> &mem, OMX_U32 portIndex, bool is_backup = false)
         : mMem(mem),
-          mIsBackup(is_backup) {
+          mIsBackup(is_backup),
+          mPortIndex(portIndex) {
     }
 
-    BufferMeta(size_t size)
+    BufferMeta(size_t size, OMX_U32 portIndex)
         : mSize(size),
-          mIsBackup(false) {
+          mIsBackup(false),
+          mPortIndex(portIndex) {
     }
 
-    BufferMeta(const sp<GraphicBuffer> &graphicBuffer)
+    BufferMeta(const sp<GraphicBuffer> &graphicBuffer, OMX_U32 portIndex)
         : mGraphicBuffer(graphicBuffer),
-          mIsBackup(false) {
+          mIsBackup(false),
+          mPortIndex(portIndex) {
     }
 
     void CopyFromOMX(const OMX_BUFFERHEADERTYPE *header) {
@@ -76,11 +80,16 @@ struct BufferMeta {
         mGraphicBuffer = graphicBuffer;
     }
 
+    OMX_U32 getPortIndex() {
+        return mPortIndex;
+    }
+
 private:
     sp<GraphicBuffer> mGraphicBuffer;
     sp<IMemory> mMem;
     size_t mSize;
     bool mIsBackup;
+    OMX_U32 mPortIndex;
 
     BufferMeta(const BufferMeta &);
     BufferMeta &operator=(const BufferMeta &);
@@ -464,7 +473,7 @@ status_t OMXNodeInstance::useBuffer(
         OMX::buffer_id *buffer) {
     Mutex::Autolock autoLock(mLock);
 
-    BufferMeta *buffer_meta = new BufferMeta(params);
+    BufferMeta *buffer_meta = new BufferMeta(params, portIndex);
 
     OMX_BUFFERHEADERTYPE *header;
 
@@ -516,7 +525,7 @@ status_t OMXNodeInstance::useGraphicBuffer2_l(
         return err;
     }
 
-    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer);
+    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer, portIndex);
 
     OMX_BUFFERHEADERTYPE *header = NULL;
     OMX_U8* bufferHandle = const_cast<OMX_U8*>(
@@ -575,7 +584,7 @@ status_t OMXNodeInstance::useGraphicBuffer(
         return StatusFromOMXError(err);
     }
 
-    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer);
+    BufferMeta *bufferMeta = new BufferMeta(graphicBuffer, portIndex);
 
     OMX_BUFFERHEADERTYPE *header;
 
@@ -621,6 +630,11 @@ status_t OMXNodeInstance::updateGraphicBufferInMeta(
     VideoDecoderOutputMetaData *metadata =
         (VideoDecoderOutputMetaData *)(header->pBuffer);
     BufferMeta *bufferMeta = (BufferMeta *)(header->pAppPrivate);
+    if (bufferMeta->getPortIndex() != portIndex) {
+        ALOGW("buffer %u has an incorrect port index.", buffer);
+        android_errorWriteLog(0x534e4554, "28816827");
+        return UNKNOWN_ERROR;
+    }
     bufferMeta->setGraphicBuffer(graphicBuffer);
     metadata->eType = kMetadataBufferTypeGrallocSource;
     metadata->pHandle = graphicBuffer->handle;
@@ -693,7 +707,7 @@ status_t OMXNodeInstance::allocateBuffer(
         void **buffer_data) {
     Mutex::Autolock autoLock(mLock);
 
-    BufferMeta *buffer_meta = new BufferMeta(size);
+    BufferMeta *buffer_meta = new BufferMeta(size, portIndex);
 
     OMX_BUFFERHEADERTYPE *header;
 
@@ -731,7 +745,7 @@ status_t OMXNodeInstance::allocateBufferWithBackup(
         OMX::buffer_id *buffer) {
     Mutex::Autolock autoLock(mLock);
 
-    BufferMeta *buffer_meta = new BufferMeta(params, true);
+    BufferMeta *buffer_meta = new BufferMeta(params, portIndex, true);
 
     OMX_BUFFERHEADERTYPE *header;
 
@@ -769,6 +783,11 @@ status_t OMXNodeInstance::freeBuffer(
 
     OMX_BUFFERHEADERTYPE *header = (OMX_BUFFERHEADERTYPE *)buffer;
     BufferMeta *buffer_meta = static_cast<BufferMeta *>(header->pAppPrivate);
+    if (buffer_meta->getPortIndex() != portIndex) {
+        ALOGW("buffer %u has an incorrect port index.", buffer);
+        android_errorWriteLog(0x534e4554, "28816827");
+        // continue freeing
+    }
 
     OMX_ERRORTYPE err = OMX_FreeBuffer(mHandle, portIndex, header);
 
@@ -792,6 +811,13 @@ status_t OMXNodeInstance::fillBuffer(OMX::buffer_id buffer) {
     header->nFilledLen = 0;
     header->nOffset = 0;
     header->nFlags = 0;
+
+    BufferMeta *buffer_meta = static_cast<BufferMeta *>(header->pAppPrivate);
+    if (buffer_meta->getPortIndex() != kPortIndexOutput) {
+        ALOGW("buffer %u has an incorrect port index.", buffer);
+        android_errorWriteLog(0x534e4554, "28816827");
+        return UNKNOWN_ERROR;
+    }
 
     OMX_ERRORTYPE err = OMX_FillThisBuffer(mHandle, header);
 
@@ -818,6 +844,11 @@ status_t OMXNodeInstance::emptyBuffer(
 
     BufferMeta *buffer_meta =
         static_cast<BufferMeta *>(header->pAppPrivate);
+    if (buffer_meta->getPortIndex() != kPortIndexInput) {
+        ALOGW("buffer %u has an incorrect port index.", buffer);
+        android_errorWriteLog(0x534e4554, "28816827");
+        return UNKNOWN_ERROR;
+    }
     buffer_meta->CopyToOMX(header);
 
     OMX_ERRORTYPE err = OMX_EmptyThisBuffer(mHandle, header);
@@ -916,8 +947,12 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
 
         BufferMeta *buffer_meta =
             static_cast<BufferMeta *>(buffer->pAppPrivate);
-
-        buffer_meta->CopyFromOMX(buffer);
+        if (buffer_meta->getPortIndex() != kPortIndexOutput) {
+            ALOGW("buffer %u has an incorrect port index.", buffer);
+            android_errorWriteLog(0x534e4554, "28816827");
+        } else {
+            buffer_meta->CopyFromOMX(buffer);
+        }
 
         if (bufferSource != NULL) {
             // fix up the buffer info (especially timestamp) if needed
