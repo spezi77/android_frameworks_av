@@ -22,6 +22,7 @@
 #include "include/SampleIterator.h"
 
 #include <arpa/inet.h>
+#include <limits>
 
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/DataSource.h>
@@ -332,7 +333,7 @@ status_t SampleTable::setTimeToSampleParams(
 
     mTimeToSampleCount = U32_AT(&header[4]);
     if ((uint64_t)mTimeToSampleCount >
-        (uint64_t)UINT32_MAX / (2 * sizeof(uint32_t))) {
+        (uint64_t)std::numeric_limits<uint32_t>::max() / (2 * sizeof(uint32_t))) {
         // Choose this bound because
         // 1) 2 * sizeof(uint32_t) is the amount of memory needed for one
         //    time-to-sample entry in the time-to-sample table.
