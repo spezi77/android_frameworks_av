@@ -129,6 +129,7 @@ else
 LOCAL_C_INCLUDES += \
         $(TOP)/hardware/qcom/media/mm-core/inc
 endif
+LOCAL_CFLAGS += -fno-strict-aliasing
 
 LOCAL_SHARED_LIBRARIES := \
         libbinder \
